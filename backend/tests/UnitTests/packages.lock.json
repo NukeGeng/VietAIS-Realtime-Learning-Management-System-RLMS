@@ -509,6 +509,13 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "learningplatform.academics": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )"
+        }
+      },
       "learningplatform.identity": {
         "type": "Project",
         "dependencies": {
