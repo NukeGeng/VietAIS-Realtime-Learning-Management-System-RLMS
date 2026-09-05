@@ -58,6 +58,40 @@ public static class AcademicRules
 
         return value;
     }
+
+    public static (DateOnly Start, DateOnly End) RequireDateRange(DateOnly start, DateOnly end)
+    {
+        if (end < start)
+        {
+            throw new AcademicValidationException("End date must be on or after the start date.");
+        }
+
+        return (start, end);
+    }
+
+    public static (DateTimeOffset Start, DateTimeOffset End) RequireTimeRange(
+        DateTimeOffset start, DateTimeOffset end)
+    {
+        if (end <= start)
+        {
+            throw new AcademicValidationException("Schedule end must be after schedule start.");
+        }
+
+        return (start, end);
+    }
+
+    public static string? RequireRecurrence(string? recurrence)
+    {
+        var value = string.IsNullOrWhiteSpace(recurrence)
+            ? null
+            : recurrence.Trim().Normalize(NormalizationForm.FormKC);
+        if (value is not null && value.Length > 500)
+        {
+            throw new AcademicValidationException("Recurrence cannot exceed 500 characters.");
+        }
+
+        return value;
+    }
 }
 
 public sealed class AcademicValidationException(string message) : Exception(message);

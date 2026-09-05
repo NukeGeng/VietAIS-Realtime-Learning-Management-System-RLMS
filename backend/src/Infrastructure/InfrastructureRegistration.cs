@@ -51,6 +51,14 @@ public static class InfrastructureRegistration
                 x => x.Code);
             options.Schema.For<CourseModule>();
             options.Schema.For<Lesson>();
+            options.Schema.For<LearningClass>().UniqueIndex(
+                Marten.Schema.UniqueIndexType.DuplicatedField,
+                "mt_learning_class_code",
+                Marten.Schema.Indexing.Unique.TenancyScope.PerTenant,
+                x => x.Code);
+            options.Schema.For<Enrollment>();
+            options.Schema.For<ClassTeacherAssignment>();
+            options.Schema.For<ClassSchedule>();
             options.AutoCreateSchemaObjects = builder.Environment.IsDevelopment()
                 ? AutoCreate.CreateOrUpdate : AutoCreate.None;
         }).UseLightweightSessions().IntegrateWithWolverine();

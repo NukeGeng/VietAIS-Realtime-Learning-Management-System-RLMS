@@ -40,6 +40,7 @@ app.MapGet("/api/identity/csrf", (HttpContext context, IAntiforgery antiforgery)
 }).AllowAnonymous();
 app.MapIdentityEndpoints();
 app.MapAcademicEndpoints();
+app.MapClassEndpoints();
 app.Run();
 
 public partial class Program;

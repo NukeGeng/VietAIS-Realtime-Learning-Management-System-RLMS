@@ -1,4 +1,5 @@
 using LearningPlatform.Identity.Domain;
+using LearningPlatform.Identity.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -15,5 +16,6 @@ public static class IdentityModuleRegistration
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
+        services.AddScoped<IIdentityDirectory, IdentityDirectory>();
     }
 }

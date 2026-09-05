@@ -56,6 +56,12 @@ requested course. Course creation, editing, publishing, and content authoring us
 permission policies; the student role is not granted an unfiltered course catalogue
 before enrollment filtering exists.
 
+`LearningClass`, `Enrollment`, `ClassTeacherAssignment`, and `ClassSchedule` are
+separate tenant-scoped documents. A class may reference only a published course,
+student class reads are filtered through active enrollment, and schedule creation
+requires an active teacher assignment. Enrollment and teacher assignment IDs are
+deterministic so retries cannot create multiple active records for the same pair.
+
 ## Identity verification
 
 The Identity slice verifies one-time bootstrap and secret handling, normalized account
