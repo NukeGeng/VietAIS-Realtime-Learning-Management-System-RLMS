@@ -1,0 +1,58 @@
+name: rlms-dev
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: rlms
+      POSTGRES_USER: rlms
+      POSTGRES_PASSWORD: ${RLMS_POSTGRES_PASSWORD:?Run scripts/setup-local.py}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-databases.sql:/docker-entrypoint-initdb.d/01-rlms-tests.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rlms -d rlms"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:56379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  object-storage:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${RLMS_STORAGE_ACCESS_KEY:?Run scripts/setup-local.py}
+      MINIO_ROOT_PASSWORD: ${RLMS_STORAGE_SECRET_KEY:?Run scripts/setup-local.py}
+    ports:
+      - "127.0.0.1:59000:9000"
+      - "127.0.0.1:59001:9001"
+    volumes:
+      - object-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  storage-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      object-storage:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${RLMS_STORAGE_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${RLMS_STORAGE_SECRET_KEY}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - 'mc alias set local http://object-storage:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null && mc mb --ignore-existing local/rlms-files'
+volumes:
+  postgres-data:
+  object-data:

@@ -1,0 +1,40 @@
+name: Backend
+on:
+  push:
+    branches: ["module/**", develop, main]
+  pull_request:
+    branches: [develop, main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Configure local test services
+        run: |
+          python3 scripts/setup-local.py
+          docker compose --env-file .env -f infra/compose/docker-compose.dev.yml up -d --wait
+      - name: Restore and build
+        run: bash scripts/build.sh
+      - name: Verify formatting
+        run: dotnet format backend/LearningPlatform.sln --no-restore --verify-no-changes
+      - name: Run unit and integration tests
+        run: bash scripts/test.sh
+      - name: Smoke and peripheral failure isolation
+        run: |
+          dotnet run --project backend/src/Api --no-build --launch-profile http > /tmp/rlms-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:5164/health/live >/dev/null; then break; fi
+            sleep 1
+          done
+          python3 scripts/smoke-foundation.py --isolate-dependencies
+      - name: Clean up services
+        if: always()
+        run: docker compose --env-file .env -f infra/compose/docker-compose.dev.yml down -v
