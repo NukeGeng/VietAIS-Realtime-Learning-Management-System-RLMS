@@ -17,7 +17,7 @@ Yêu cầu .NET SDK theo `global.json`, Python 3 và Docker Compose.
 
 ```bash
 python3 scripts/setup-local.py
-docker compose --env-file .env -f infra/compose/docker-compose.dev.yml up -d --wait
+bash scripts/start-services.sh
 bash scripts/build.sh
 bash scripts/test.sh
 dotnet run --project backend/src/Api --launch-profile https

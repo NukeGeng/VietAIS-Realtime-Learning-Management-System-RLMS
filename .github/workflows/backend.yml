@@ -18,7 +18,7 @@ jobs:
       - name: Configure local test services
         run: |
           python3 scripts/setup-local.py
-          docker compose --env-file .env -f infra/compose/docker-compose.dev.yml up -d --wait
+          bash scripts/start-services.sh
       - name: Restore and build
         run: bash scripts/build.sh
       - name: Verify formatting

@@ -43,6 +43,7 @@ services:
       timeout: 3s
       retries: 15
   storage-init:
+    profiles: ["setup"]
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
     depends_on:
       object-storage:
