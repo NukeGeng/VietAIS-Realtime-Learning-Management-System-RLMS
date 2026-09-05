@@ -5,6 +5,9 @@ using LearningPlatform.Assessment.Api;
 using LearningPlatform.Assessment.Domain;
 using LearningPlatform.Classroom.Domain;
 using LearningPlatform.Classroom.Api;
+using LearningPlatform.Assessment.Realtime;
+using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR.Client;
 
 namespace LearningPlatform.IntegrationTests;
 
@@ -54,13 +57,89 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         var changedAttempt = await changed.Content.ReadFromJsonAsync<StudentActivityResponse>();
         Assert.Equal("A", changedAttempt!.Answers[questionId]);
 
+        var overviewDelta = new TaskCompletionSource<ActivityOverviewDelta>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        ActivityOverviewDelta? receivedDelta = null;
+        await using (var connection = new HubConnectionBuilder()
+                         .WithUrl("https://localhost/hubs/assessment", options =>
+                         {
+                             options.Transports = HttpTransportType.LongPolling;
+                             options.HttpMessageHandlerFactory = _ => fixture.Server.CreateHandler();
+                             options.Headers["Cookie"] = setup.Teacher.DefaultRequestHeaders
+                                 .GetValues("Cookie").Single();
+                         }).Build())
+        {
+            connection.On<ActivityOverviewDelta>("activity-overview-delta",
+                delta =>
+                {
+                    if (delta.Version >= 5)
+                    {
+                        overviewDelta.TrySetResult(delta);
+                    }
+                });
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await connection.StartAsync(timeout.Token);
+            await connection.InvokeAsync("SubscribeOverview", setup.ClassId, setup.Activity.Id,
+                timeout.Token);
+            await connection.InvokeAsync("SubscribeStudentDetail", started.Id, timeout.Token);
+
+            using var realtimeSave = await PutWithCsrfAsync(setup.Student,
+                $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/answers/{questionId:D}",
+                new SaveAnswerRequest("B"));
+            Assert.Equal(HttpStatusCode.OK, realtimeSave.StatusCode);
+            receivedDelta = await overviewDelta.Task.WaitAsync(timeout.Token);
+            Assert.Equal(setup.StudentId, receivedDelta.StudentId);
+            Assert.Equal(5, receivedDelta.Version);
+            Assert.Equal("B", (await realtimeSave.Content.ReadFromJsonAsync<StudentActivityResponse>())!
+                .Answers[questionId]);
+
+            await connection.InvokeAsync("UnsubscribeStudentDetail", started.Id, timeout.Token);
+            await connection.InvokeAsync("UnsubscribeOverview", setup.ClassId, setup.Activity.Id,
+                timeout.Token);
+            await connection.StopAsync(timeout.Token);
+        }
+
+        ClassOverviewResponse? overview = null;
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (overview is null || overview.Students.Single(student =>
+                       student.StudentId == setup.StudentId).Version < receivedDelta.Version)
+            {
+                using var response = await setup.Teacher.GetAsync(
+                    $"/api/assessment/classes/{setup.ClassId:D}/activities/{setup.Activity.Id:D}/overview",
+                    timeout.Token);
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                overview = await response.Content.ReadFromJsonAsync<ClassOverviewResponse>(timeout.Token);
+                if (overview!.Students.Single(student => student.StudentId == setup.StudentId).Version >= 2)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+        var overviewStudent = Assert.Single(overview!.Students,
+            student => student.StudentId == setup.StudentId);
+        Assert.Equal(5, overviewStudent.Version);
+        Assert.Equal(1, overviewStudent.AnsweredCount);
+        Assert.Equal(100m, overviewStudent.Progress);
+        Assert.DoesNotContain("Answers", await (await setup.Teacher.GetAsync(
+            $"/api/assessment/classes/{setup.ClassId:D}/activities/{setup.Activity.Id:D}/overview"))
+            .Content.ReadAsStringAsync());
+
+        using var detailResponse = await setup.Teacher.GetAsync(
+            $"/api/assessment/attempts/{started.Id:D}/detail");
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        var detail = await detailResponse.Content.ReadFromJsonAsync<StudentAttemptDetailResponse>();
+        Assert.Equal("B", detail!.Answers[questionId]);
+
         using var submit = await PostWithCsrfAsync(setup.Student,
             $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/submit", new { });
         Assert.Equal(HttpStatusCode.Created, submit.StatusCode);
         var submission = await submit.Content.ReadFromJsonAsync<SubmissionResponse>();
         Assert.NotNull(submission);
         Assert.Equal(setup.Activity.Id, submission!.ActivityId);
-        Assert.Contains(submission.Answers, answer => answer.QuestionId == questionId && answer.Value == "A");
+        Assert.Contains(submission.Answers, answer => answer.QuestionId == questionId && answer.Value == "B");
 
         using var attempt = await setup.Student.GetAsync(
             $"/api/assessment/activities/{setup.Activity.Id:D}/attempt");
@@ -187,7 +266,79 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         Assert.Equal(AssessmentActivityStatus.Published, published.Status);
     }
 
-    private async Task<ActivitySetup> CreateActivitySetupAsync()
+    [Fact]
+    public async Task Student_detail_switch_unsubscribes_previous_attempt_before_subscribing_next()
+    {
+        var setup = await CreateActivitySetupAsync(includeSecondStudent: true);
+        var secondStudent = setup.SecondStudent!;
+
+        using var startA = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        startA.EnsureSuccessStatusCode();
+        var attemptA = (await startA.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
+        var questionId = setup.Activity.Questions[0].Id;
+
+        using var startB = await PostWithCsrfAsync(secondStudent,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        startB.EnsureSuccessStatusCode();
+        var attemptB = (await startB.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
+
+        var detailA = new TaskCompletionSource<ActivityDetailDelta>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var detailB = new TaskCompletionSource<ActivityDetailDelta>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var connection = new HubConnectionBuilder()
+            .WithUrl("https://localhost/hubs/assessment", options =>
+            {
+                options.Transports = HttpTransportType.LongPolling;
+                options.HttpMessageHandlerFactory = _ => fixture.Server.CreateHandler();
+                options.Headers["Cookie"] = setup.Teacher.DefaultRequestHeaders
+                    .GetValues("Cookie").Single();
+            }).Build();
+        connection.On<ActivityDetailDelta>("activity-detail-delta", delta =>
+        {
+            if (delta.AttemptId == attemptA.Id)
+            {
+                detailA.TrySetResult(delta);
+            }
+
+            if (delta.AttemptId == attemptB.Id && delta.Version >= 2)
+            {
+                detailB.TrySetResult(delta);
+            }
+        });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await connection.StartAsync(timeout.Token);
+        await connection.InvokeAsync("SubscribeStudentDetail", attemptA.Id, timeout.Token);
+
+        using var saveA = await PutWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/answers/{questionId:D}",
+            new SaveAnswerRequest("B"));
+        saveA.EnsureSuccessStatusCode();
+        Assert.Equal(attemptA.Id, (await detailA.Task.WaitAsync(timeout.Token)).AttemptId);
+
+        await connection.InvokeAsync("UnsubscribeStudentDetail", attemptA.Id, timeout.Token);
+        await connection.InvokeAsync("SubscribeStudentDetail", attemptB.Id, timeout.Token);
+
+        using var changedA = await PutWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/answers/{questionId:D}",
+            new SaveAnswerRequest("A"));
+        changedA.EnsureSuccessStatusCode();
+        await Task.Delay(250, timeout.Token);
+        Assert.False(detailB.Task.IsCompleted);
+
+        using var saveB = await PutWithCsrfAsync(secondStudent,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/answers/{questionId:D}",
+            new SaveAnswerRequest("B"));
+        saveB.EnsureSuccessStatusCode();
+        var receivedB = await detailB.Task.WaitAsync(timeout.Token);
+        Assert.Equal(attemptB.Id, receivedB.AttemptId);
+        Assert.Equal("B", receivedB.AnswerValue);
+
+        await connection.StopAsync(timeout.Token);
+    }
+
+    private async Task<ActivitySetup> CreateActivitySetupAsync(bool includeSecondStudent = false)
     {
         var organization = await fixture.EnsureBootstrappedAsync();
         var teacher = fixture.Client();
@@ -211,6 +362,25 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
                 StudentId = student.UserId
             });
         enrollment.EnsureSuccessStatusCode();
+
+        Guid secondStudentId = Guid.Empty;
+        HttpClient? secondStudentClient = null;
+        if (includeSecondStudent)
+        {
+            var secondEmail = $"activity-second-{Guid.NewGuid():N}@rlms.test";
+            var second = await fixture.CreateTestAccountAsync(secondEmail,
+                "second activity student password", "STUDENT");
+            secondStudentId = second.UserId;
+            using var secondEnrollment = await PostWithCsrfAsync(teacher,
+                $"/api/academics/classes/{learningClass.Id:D}/enrollments", new
+                {
+                    StudentId = second.UserId
+                });
+            secondEnrollment.EnsureSuccessStatusCode();
+            secondStudentClient = fixture.Client();
+            FoundationFixture.SetCookies(secondStudentClient,
+                await fixture.LoginCookieAsync(secondEmail, "second activity student password"));
+        }
 
         using var createQuestion = await PostWithCsrfAsync(teacher, "/api/assessment/question-bank", new
         {
@@ -262,7 +432,7 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         FoundationFixture.SetCookies(studentClient,
             await fixture.LoginCookieAsync(studentEmail, studentPassword));
         return new ActivitySetup(teacher, studentClient, learningClass.Id, organization.AdministratorId,
-            activity, question.Item.Id, version);
+            student.UserId, activity, question.Item.Id, version, secondStudentClient, secondStudentId);
     }
 
     private async Task<CourseResponse> CreatePublishedCourseAsync(HttpClient client)
@@ -323,6 +493,6 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
     }
 
     private sealed record ActivitySetup(HttpClient Teacher, HttpClient Student, Guid ClassId,
-        Guid TeacherId, AssessmentActivityResponse Activity, Guid QuestionItemId,
-        QuestionVersionResponse QuestionVersion);
+        Guid TeacherId, Guid StudentId, AssessmentActivityResponse Activity, Guid QuestionItemId,
+        QuestionVersionResponse QuestionVersion, HttpClient? SecondStudent, Guid SecondStudentId);
 }

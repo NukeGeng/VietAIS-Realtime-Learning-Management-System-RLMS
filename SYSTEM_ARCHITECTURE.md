@@ -145,7 +145,7 @@ Có thể lưu ephemeral state tại Redis.
 
 ### 5.2. Class Overview Channel
 Teacher subscribe theo:
-`class:{classId}:activity:{activityId}:overview`
+`tenant:{tenantId}:activity-overview:{classId}:{activityId}`
 
 Payload tối thiểu:
 
@@ -165,7 +165,7 @@ Không gửi answer detail.
 ### 5.3. Student Detail Channel
 Teacher chỉ subscribe khi mở attempt:
 
-`attempt:{attemptId}:detail`
+`tenant:{tenantId}:activity-detail:{attemptId}`
 
 Khi chuyển sinh viên:
 - leave group cũ;
@@ -187,6 +187,10 @@ QuestionOpened Version 39
 ```
 
 Nếu mất connection, client có thể reload snapshot hiện tại rồi subscribe lại.
+The Assessment projection stores the exact post-transition state before sending
+these deltas and ignores an older version for an attempt. Overview delivery and
+detail delivery are isolated best-effort operations; an error in one does not stop
+the other.
 
 ---
 

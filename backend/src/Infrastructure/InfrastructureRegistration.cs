@@ -71,6 +71,8 @@ public static class InfrastructureRegistration
             options.Schema.For<QuestionVersion>();
             options.Schema.For<AssessmentActivity>();
             options.Schema.For<Submission>();
+            options.Schema.For<ClassOverviewView>();
+            options.Schema.For<StudentAttemptDetailView>();
             options.Projections.Snapshot<StudentActivity>(JasperFx.Events.Projections.SnapshotLifecycle.Inline);
             options.AutoCreateSchemaObjects = builder.Environment.IsDevelopment()
                 ? AutoCreate.CreateOrUpdate : AutoCreate.None;

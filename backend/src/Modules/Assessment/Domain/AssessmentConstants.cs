@@ -17,6 +17,9 @@ public static class AssessmentConstants
     public static Guid SubmissionId(Guid activityId, Guid studentId) =>
         StableId($"submission:{activityId:D}:{studentId:D}");
 
+    public static Guid ClassOverviewViewId(Guid learningClassId, Guid activityId) =>
+        StableId($"class-overview:{learningClassId:D}:{activityId:D}");
+
     private static Guid StableId(string value)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));

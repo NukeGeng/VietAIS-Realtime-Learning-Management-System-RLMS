@@ -1,6 +1,6 @@
 # Foundation implementation
 
-Scope: GOAL Phase 0 through the Phase 3 learning-activity slice. Business modules are added only when a use case exists.
+Scope: GOAL Phase 0 through the Phase 4 realtime activity slice. Business modules are added only when a use case exists.
 The initial projects are the API composition root, technical Infrastructure,
 and Identity (authenticated actor and permission contract). No empty modules.
 
@@ -111,7 +111,8 @@ ephemeral presence. No test authentication bypass is exposed by the application.
 Phase 2 chat, raise hand, and attendance are covered by integration tests. Phase 3
 learning activity is covered by integration tests for question versioning, published
 activity snapshots, direct in-class publish, pause/resume, event-sourced attempts,
-answer changes, and submission. Phases 4–8 and GOAL flows A–F remain required.
+answer changes, and submission. Phase 4 realtime overview/detail is covered by
+SignalR and snapshot tests. Phases 5–8 and GOAL flows A–F remain required.
 
 ## Phase 3 learning activity
 
@@ -130,6 +131,23 @@ the durable transitions in this slice. The final `Submission` document stores a
 durable answer snapshot in the same tenant-scoped session. Correct answers remain
 inside the teacher-facing question-bank/activity model and are not returned in the
 student activity response.
+
+## Phase 4 realtime activity
+
+Assessment owns the tenant-scoped `ClassOverviewView` and
+`StudentAttemptDetailView` read models. A durable `StudentActivityChanged` message
+contains the exact post-transition snapshot and is handled on a sequential local
+queue. The handler writes the detail and metadata-only overview projection before
+best-effort SignalR delivery, so a realtime or projection delivery failure cannot
+roll back an answer.
+
+Teachers can load an overview for their assigned class and subscribe to the
+tenant-prefixed overview group. Full answer values are available only from the
+on-demand attempt detail endpoint or detail group. Switching detail subscriptions
+requires an explicit unsubscribe before the next snapshot and subscription;
+reconnecting clients can reload the versioned snapshot and subscribe again. Each
+projection rejects an older per-attempt version and the overview response reports
+the latest version for stale-client detection.
 
 Review findings to resolve within their owning slices: snapshot/subscription gap
 recovery; immutable essay submission membership; validation bound to file/topic/policy

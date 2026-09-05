@@ -5,16 +5,18 @@ RLMS kết hợp LMS và lớp học realtime, theo scope trong `GOAL.md`.
 ## Trạng thái triển khai
 
 Đang triển khai backend Foundation, Identity, Academics, Classroom, Communication và
-Assessment trên `module/be-learning-activity`: ASP.NET Core,
+Assessment trên `module/be-realtime-overview`: ASP.NET Core,
 Marten/PostgreSQL, Wolverine, Redis, S3-compatible storage, cookie authentication,
 one-time bootstrap, login, organization-scoped sessions, CSRF, role/permission checks,
 health checks, course/class/enrollment/scheduling, LiveSession lifecycle, SignalR
 session groups, Redis presence, tenant-scoped chat/raise-hand, durable asynchronous
 attendance, versioned question bank, immutable published activities, event-sourced
-student attempts, answer save/change và submission.
+student attempts, answer save/change và submission, tenant-scoped Class Overview,
+on-demand Student Detail, snapshot-plus-delta SignalR updates và reconnect-safe
+subscription flow.
 
 Frontend và các flow học tập hoàn chỉnh chưa được triển khai.
-Phase 4–8 và Golden Path A–F trong GOAL vẫn phải triển khai và verify.
+Phase 5–8 và Golden Path A–F trong GOAL vẫn phải triển khai và verify.
 
 ## Chạy local
 

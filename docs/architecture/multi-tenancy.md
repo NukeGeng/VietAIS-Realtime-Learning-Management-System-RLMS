@@ -38,7 +38,7 @@ therefore be reused by two organizations while remaining unique inside each one.
 | Data | Primary storage | Tenant rule |
 | --- | --- | --- |
 | Organization registry and bootstrap marker | PostgreSQL/Marten control tenant | Platform/control data only |
-| Users, roles, courses, classes, enrollment, schedules, LiveSession, AttendanceRecord, RaiseHand, ChatMessage, QuestionBankItem, QuestionVersion, AssessmentActivity, Submission | PostgreSQL/Marten | Conjoined tenant session |
+| Users, roles, courses, classes, enrollment, schedules, LiveSession, AttendanceRecord, RaiseHand, ChatMessage, QuestionBankItem, QuestionVersion, AssessmentActivity, Submission, ClassOverviewView, StudentAttemptDetailView | PostgreSQL/Marten | Conjoined tenant session |
 | StudentActivity event stream and inline snapshot | PostgreSQL/Marten | Conjoined event store and tenant-scoped snapshot |
 | Presence, connection state, snapshots and short-lived counters | Redis | Every key starts with the tenant ID |
 | File metadata and ownership | PostgreSQL/Marten | Metadata is tenant-scoped |
@@ -50,6 +50,10 @@ The LiveSession implementation uses keys such as
 select a session or group; the server resolves it from the authenticated principal
 and verifies resource membership. Attendance message contracts carry the same
 organization/tenant ID so background handlers open the correct Marten session.
+Assessment overview and detail groups use the same rule:
+`tenant:{tenantId}:activity-overview:{classId}:{activityId}` and
+`tenant:{tenantId}:activity-detail:{attemptId}`. Overview deltas contain metadata
+only; answer values are sent only to an authorized detail group.
 
 ## Placement options
 

@@ -1,6 +1,7 @@
 using LearningPlatform.Academics.Authorization;
 using LearningPlatform.Academics.Domain;
 using LearningPlatform.Assessment.Domain;
+using LearningPlatform.Assessment.Realtime;
 using LearningPlatform.Classroom.Domain;
 using LearningPlatform.Identity.Authorization;
 using LearningPlatform.Identity.Domain;
@@ -8,6 +9,8 @@ using Marten;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
+using Wolverine;
 
 namespace LearningPlatform.Assessment.Api;
 
@@ -31,6 +34,11 @@ public static class AssessmentEndpoints
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageAssessmentActivities);
         endpoints.MapGet("/api/assessment/activities/{activityId:guid}", GetActivityAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.SubmitAssessmentActivities);
+        endpoints.MapGet("/api/assessment/classes/{classId:guid}/activities/{activityId:guid}/overview",
+                GetOverviewAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageAssessmentActivities);
+        endpoints.MapGet("/api/assessment/attempts/{attemptId:guid}/detail", GetAttemptDetailAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageAssessmentActivities);
         endpoints.MapPost("/api/assessment/activities/{activityId:guid}/questions",
                 AddActivityQuestionAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageAssessmentActivities);
@@ -420,6 +428,91 @@ public static class AssessmentEndpoints
         }
     }
 
+    private static async Task<IResult> GetOverviewAsync(
+        Guid classId,
+        Guid activityId,
+        HttpContext context,
+        IQuerySession session,
+        IAcademicDirectory academics,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        if (await academics.FindClassAsync(actor!.OrganizationId, classId, cancellationToken) is null)
+        {
+            return Results.NotFound();
+        }
+
+        var activity = await session.LoadAsync<AssessmentActivity>(activityId, cancellationToken);
+        if (activity is null || activity.LearningClassId != classId)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(actor, classId, academics, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        var enrollments = await session.Query<Enrollment>()
+            .Where(enrollment => enrollment.LearningClassId == classId &&
+                enrollment.Status == EnrollmentStatus.Active)
+            .OrderBy(enrollment => enrollment.StudentId)
+            .ToListAsync(cancellationToken);
+        var view = await session.LoadAsync<ClassOverviewView>(
+            AssessmentConstants.ClassOverviewViewId(classId, activityId), cancellationToken);
+        var summaries = view?.Students.ToDictionary(student => student.StudentId) ??
+            new Dictionary<Guid, ClassOverviewStudent>();
+        var students = enrollments.Select(enrollment => summaries.TryGetValue(enrollment.StudentId,
+                out var summary)
+            ? ClassOverviewStudentResponse.From(summary)
+            : ClassOverviewStudentResponse.NotStarted(enrollment.StudentId, activity.Questions.Count)).ToArray();
+        return Results.Ok(new ClassOverviewResponse(classId, activityId, view?.Version ?? 0,
+            view?.UpdatedAt, students));
+    }
+
+    private static async Task<IResult> GetAttemptDetailAsync(
+        Guid attemptId,
+        HttpContext context,
+        IQuerySession session,
+        IAcademicDirectory academics,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var detail = await session.LoadAsync<StudentAttemptDetailView>(attemptId, cancellationToken);
+        if (detail is null)
+        {
+            var attempt = await session.LoadAsync<StudentActivity>(attemptId, cancellationToken);
+            if (attempt is null)
+            {
+                return Results.NotFound();
+            }
+
+            var activity = await session.LoadAsync<AssessmentActivity>(attempt.ActivityId, cancellationToken);
+            if (activity is null)
+            {
+                return Results.NotFound();
+            }
+
+            detail = StudentAttemptDetailViewFrom(attempt, activity.Questions.Count);
+        }
+
+        if (detail.OrganizationId != actor!.OrganizationId ||
+            !await CanManageClassAsync(actor, detail.LearningClassId, academics, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        return Results.Ok(StudentAttemptDetailResponse.From(detail));
+    }
+
     private static async Task<IResult> PublishActivityAsync(
         Guid activityId,
         HttpContext context,
@@ -577,6 +670,8 @@ public static class AssessmentEndpoints
         HttpContext context,
         IDocumentSession session,
         IAcademicDirectory academics,
+        IMessageBus messageBus,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -612,11 +707,19 @@ public static class AssessmentEndpoints
             return Results.Ok(StudentActivityResponse.From(stream.Aggregate));
         }
 
+        var logger = loggerFactory.CreateLogger("LearningPlatform.Assessment.Api");
         var now = DateTimeOffset.UtcNow;
-        stream.AppendOne(new StudentActivityStarted(attemptId, actor.OrganizationId, actor.UserId,
-            activity.Id, activity.LearningClassId, activity.LiveSessionId, now));
+        var startedEvent = new StudentActivityStarted(attemptId, actor.OrganizationId, actor.UserId,
+            activity.Id, activity.LearningClassId, activity.LiveSessionId, now);
+        var nextState = new StudentActivity();
+        nextState.Apply(startedEvent);
+        stream.AppendOne(startedEvent);
         await session.SaveChangesAsync(cancellationToken);
         var attempt = await session.LoadAsync<StudentActivity>(attemptId, cancellationToken);
+        await StudentActivityChangePublisher.PublishAsync(messageBus, logger,
+            new StudentActivityChanged(actor.OrganizationId, attemptId, activity.Id, actor.UserId,
+                activity.LearningClassId, ActivityChangeTypes.Started, null, null,
+                StudentActivityRealtimeState.From(nextState), now));
         return Results.Ok(StudentActivityResponse.From(attempt!));
     }
 
@@ -654,6 +757,8 @@ public static class AssessmentEndpoints
         HttpContext context,
         IDocumentSession session,
         IAcademicDirectory academics,
+        IMessageBus messageBus,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -695,9 +800,18 @@ public static class AssessmentEndpoints
             return Results.Conflict(new { error = "This activity attempt is not accepting interaction." });
         }
 
-        stream.AppendOne(new QuestionOpened(attemptId, questionId, DateTimeOffset.UtcNow));
+        var logger = loggerFactory.CreateLogger("LearningPlatform.Assessment.Api");
+        var now = DateTimeOffset.UtcNow;
+        var openedEvent = new QuestionOpened(attemptId, questionId, now);
+        var nextState = Clone(stream.Aggregate);
+        nextState.Apply(openedEvent);
+        stream.AppendOne(openedEvent);
         await session.SaveChangesAsync(cancellationToken);
         var attempt = await session.LoadAsync<StudentActivity>(attemptId, cancellationToken);
+        await StudentActivityChangePublisher.PublishAsync(messageBus, logger,
+            new StudentActivityChanged(actor.OrganizationId, attemptId, activity.Id, actor.UserId,
+                activity.LearningClassId, ActivityChangeTypes.QuestionOpened, questionId, null,
+                StudentActivityRealtimeState.From(nextState), now));
         return Results.Ok(StudentActivityResponse.From(attempt!));
     }
 
@@ -708,6 +822,8 @@ public static class AssessmentEndpoints
         HttpContext context,
         IDocumentSession session,
         IAcademicDirectory academics,
+        IMessageBus messageBus,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -760,13 +876,29 @@ public static class AssessmentEndpoints
             return Results.Conflict(new { error = "This activity attempt is not accepting answers." });
         }
 
+        var logger = loggerFactory.CreateLogger("LearningPlatform.Assessment.Api");
         var now = DateTimeOffset.UtcNow;
-        var answerEvent = stream.Aggregate.Answers.ContainsKey(questionId)
+        var changed = stream.Aggregate.Answers.ContainsKey(questionId);
+        var answerEvent = changed
             ? (object)new AnswerChanged(attemptId, questionId, answer, now)
             : new AnswerSubmitted(attemptId, questionId, answer, now);
+        var nextState = Clone(stream.Aggregate);
+        if (answerEvent is AnswerChanged changedEvent)
+        {
+            nextState.Apply(changedEvent);
+        }
+        else
+        {
+            nextState.Apply((AnswerSubmitted)answerEvent);
+        }
         stream.AppendOne(answerEvent);
         await session.SaveChangesAsync(cancellationToken);
         var attempt = await session.LoadAsync<StudentActivity>(attemptId, cancellationToken);
+        await StudentActivityChangePublisher.PublishAsync(messageBus, logger,
+            new StudentActivityChanged(actor.OrganizationId, attemptId, activity.Id, actor.UserId,
+                activity.LearningClassId,
+                changed ? ActivityChangeTypes.AnswerChanged : ActivityChangeTypes.AnswerSubmitted,
+                questionId, answer, StudentActivityRealtimeState.From(nextState), now));
         return Results.Ok(StudentActivityResponse.From(attempt!));
     }
 
@@ -775,6 +907,8 @@ public static class AssessmentEndpoints
         HttpContext context,
         IDocumentSession session,
         IAcademicDirectory academics,
+        IMessageBus messageBus,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -819,8 +953,12 @@ public static class AssessmentEndpoints
             return Results.Conflict(new { error = "This activity attempt cannot be submitted." });
         }
 
+        var logger = loggerFactory.CreateLogger("LearningPlatform.Assessment.Api");
         var now = DateTimeOffset.UtcNow;
-        stream.AppendOne(new ActivitySubmitted(attemptId, now));
+        var submittedEvent = new ActivitySubmitted(attemptId, now);
+        var nextState = Clone(stream.Aggregate);
+        nextState.Apply(submittedEvent);
+        stream.AppendOne(submittedEvent);
         var submission = new Submission
         {
             Id = AssessmentConstants.SubmissionId(activityId, actor.UserId),
@@ -837,6 +975,10 @@ public static class AssessmentEndpoints
         };
         session.Insert(submission);
         await session.SaveChangesAsync(cancellationToken);
+        await StudentActivityChangePublisher.PublishAsync(messageBus, logger,
+            new StudentActivityChanged(actor.OrganizationId, attemptId, activity.Id, actor.UserId,
+                activity.LearningClassId, ActivityChangeTypes.Submitted, null, null,
+                StudentActivityRealtimeState.From(nextState), now));
         return Results.Created($"/api/assessment/activities/{activityId:D}/submissions/{submission.Id:D}",
             SubmissionResponse.From(submission));
     }
@@ -896,6 +1038,45 @@ public static class AssessmentEndpoints
         return IsOpen(activity, now) &&
             (activity.TimeLimit is not { } limit || now <= attempt.StartedAt + limit);
     }
+
+    private static StudentActivity Clone(StudentActivity source) => new()
+    {
+        Id = source.Id,
+        OrganizationId = source.OrganizationId,
+        StudentId = source.StudentId,
+        ActivityId = source.ActivityId,
+        LearningClassId = source.LearningClassId,
+        LiveSessionId = source.LiveSessionId,
+        CurrentQuestionId = source.CurrentQuestionId,
+        Status = source.Status,
+        Answers = new Dictionary<Guid, string>(source.Answers),
+        AnsweredCount = source.AnsweredCount,
+        StartedAt = source.StartedAt,
+        LastActivityAt = source.LastActivityAt,
+        SubmittedAt = source.SubmittedAt,
+        Version = source.Version
+    };
+
+    private static StudentAttemptDetailView StudentAttemptDetailViewFrom(StudentActivity activity,
+        int totalQuestions) => new()
+        {
+            Id = activity.Id,
+            OrganizationId = activity.OrganizationId,
+            StudentId = activity.StudentId,
+            ActivityId = activity.ActivityId,
+            LearningClassId = activity.LearningClassId,
+            LiveSessionId = activity.LiveSessionId,
+            CurrentQuestionId = activity.CurrentQuestionId,
+            Status = activity.Status,
+            Answers = new Dictionary<Guid, string>(activity.Answers),
+            AnsweredCount = activity.AnsweredCount,
+            TotalQuestions = totalQuestions,
+            Progress = totalQuestions == 0 ? 0m : decimal.Round(activity.AnsweredCount * 100m / totalQuestions, 2),
+            StartedAt = activity.StartedAt,
+            LastActivityAt = activity.LastActivityAt,
+            SubmittedAt = activity.SubmittedAt,
+            Version = activity.Version
+        };
 
     private static (DateTimeOffset? OpensAt, DateTimeOffset? DueAt, TimeSpan? TimeLimit) ValidateActivityTimes(
         DateTimeOffset? opensAt, DateTimeOffset? dueAt, TimeSpan? timeLimit)
@@ -1046,4 +1227,32 @@ public sealed record SubmissionResponse(Guid Id, Guid ActivityId, Guid StudentId
     public static SubmissionResponse From(Submission submission) => new(submission.Id, submission.ActivityId,
         submission.StudentId, submission.StudentActivityId, submission.SubmittedAt, submission.Status,
         submission.Version, submission.Answers);
+}
+
+public sealed record ClassOverviewResponse(Guid LearningClassId, Guid ActivityId, long Version,
+    DateTimeOffset? UpdatedAt, ClassOverviewStudentResponse[] Students);
+
+public sealed record ClassOverviewStudentResponse(Guid StudentId, Guid AttemptId,
+    Guid? CurrentQuestionId, int AnsweredCount, int TotalQuestions, decimal Progress,
+    StudentActivityStatus? Status, DateTimeOffset? LastActivityAt, bool HelpRequested, long Version)
+{
+    public static ClassOverviewStudentResponse From(ClassOverviewStudent student) => new(student.StudentId,
+        student.AttemptId, student.CurrentQuestionId, student.AnsweredCount, student.TotalQuestions,
+        student.Progress, student.Status, student.LastActivityAt, student.HelpRequested, student.Version);
+
+    public static ClassOverviewStudentResponse NotStarted(Guid studentId, int totalQuestions) =>
+        new(studentId, Guid.Empty, null, 0, totalQuestions, 0m, null, null, false, 0);
+}
+
+public sealed record StudentAttemptDetailResponse(Guid Id, Guid OrganizationId, Guid StudentId,
+    Guid ActivityId, Guid LearningClassId, Guid? LiveSessionId, Guid? CurrentQuestionId,
+    StudentActivityStatus Status, Dictionary<Guid, string> Answers, int AnsweredCount,
+    int TotalQuestions, decimal Progress, DateTimeOffset StartedAt, DateTimeOffset LastActivityAt,
+    DateTimeOffset? SubmittedAt, long Version)
+{
+    public static StudentAttemptDetailResponse From(StudentAttemptDetailView detail) => new(detail.Id,
+        detail.OrganizationId, detail.StudentId, detail.ActivityId, detail.LearningClassId,
+        detail.LiveSessionId, detail.CurrentQuestionId, detail.Status,
+        new Dictionary<Guid, string>(detail.Answers), detail.AnsweredCount, detail.TotalQuestions,
+        detail.Progress, detail.StartedAt, detail.LastActivityAt, detail.SubmittedAt, detail.Version);
 }

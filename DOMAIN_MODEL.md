@@ -452,6 +452,14 @@ snapshot is the attempt read model; event history is reserved for durable state
 transitions and audit. Current transitions are `StudentActivityStarted`,
 `QuestionOpened`, `AnswerSubmitted`, `AnswerChanged`, and `ActivitySubmitted`.
 
+Assessment also owns two tenant-scoped read models for the teacher workspace:
+`ClassOverviewView` stores one metadata summary per enrolled student and never
+stores answer content in its realtime response; `StudentAttemptDetailView` stores
+the latest full answer snapshot for one attempt. Both include a monotonic version.
+The async projection updates them from the durable `StudentActivityChanged`
+contract, and the API falls back to the inline `StudentActivity` snapshot when a
+detail projection is still catching up.
+
 Stream:
 
 ```text

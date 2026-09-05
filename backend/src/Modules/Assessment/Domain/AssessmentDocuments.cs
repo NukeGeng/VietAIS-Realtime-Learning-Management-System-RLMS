@@ -1,3 +1,5 @@
+using LearningPlatform.Classroom.Domain;
+
 namespace LearningPlatform.Assessment.Domain;
 
 public enum QuestionBankStatus
@@ -114,3 +116,48 @@ public sealed class Submission
 }
 
 public sealed record SubmissionAnswer(Guid QuestionId, string Value);
+
+public sealed class ClassOverviewView
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid LearningClassId { get; set; }
+    public Guid ActivityId { get; set; }
+    public long Version { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public List<ClassOverviewStudent> Students { get; set; } = [];
+}
+
+public sealed class ClassOverviewStudent
+{
+    public Guid StudentId { get; set; }
+    public Guid AttemptId { get; set; }
+    public Guid? CurrentQuestionId { get; set; }
+    public int AnsweredCount { get; set; }
+    public int TotalQuestions { get; set; }
+    public decimal Progress { get; set; }
+    public StudentActivityStatus? Status { get; set; }
+    public DateTimeOffset? LastActivityAt { get; set; }
+    public bool HelpRequested { get; set; }
+    public long Version { get; set; }
+}
+
+public sealed class StudentAttemptDetailView
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid StudentId { get; set; }
+    public Guid ActivityId { get; set; }
+    public Guid LearningClassId { get; set; }
+    public Guid? LiveSessionId { get; set; }
+    public Guid? CurrentQuestionId { get; set; }
+    public StudentActivityStatus Status { get; set; }
+    public Dictionary<Guid, string> Answers { get; set; } = [];
+    public int AnsweredCount { get; set; }
+    public int TotalQuestions { get; set; }
+    public decimal Progress { get; set; }
+    public DateTimeOffset StartedAt { get; set; }
+    public DateTimeOffset LastActivityAt { get; set; }
+    public DateTimeOffset? SubmittedAt { get; set; }
+    public long Version { get; set; }
+}

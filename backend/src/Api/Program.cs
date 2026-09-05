@@ -5,10 +5,12 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using LearningPlatform.Identity;
 using LearningPlatform.Identity.Api;
+using LearningPlatform.Identity.Authorization;
 using LearningPlatform.Academics;
 using LearningPlatform.Academics.Api;
 using LearningPlatform.Assessment;
 using LearningPlatform.Assessment.Api;
+using LearningPlatform.Assessment.Realtime;
 using LearningPlatform.Classroom;
 using LearningPlatform.Classroom.Api;
 using LearningPlatform.Classroom.Attendance;
@@ -31,10 +33,13 @@ builder.UseWolverine(options =>
 {
     options.Policies.UseDurableLocalQueues();
     options.Discovery.IncludeAssembly(typeof(ClassroomModuleRegistration).Assembly);
+    options.Discovery.IncludeAssembly(typeof(AssessmentModuleRegistration).Assembly);
     options.LocalQueue("attendance").Sequential();
     options.PublishMessage<LiveSessionParticipantJoined>().ToLocalQueue("attendance");
     options.PublishMessage<LiveSessionParticipantLeft>().ToLocalQueue("attendance");
     options.PublishMessage<LiveSessionEnded>().ToLocalQueue("attendance");
+    options.LocalQueue("activity-projection").Sequential();
+    options.PublishMessage<StudentActivityChanged>().ToLocalQueue("activity-projection");
 });
 
 var app = builder.Build();
@@ -62,6 +67,8 @@ app.MapIdentityEndpoints();
 app.MapAcademicEndpoints();
 app.MapClassEndpoints();
 app.MapAssessmentEndpoints();
+app.MapHub<AssessmentRealtimeHub>("/hubs/assessment")
+    .RequireAuthorization(IdentityAuthorizationPolicies.SubmitAssessmentActivities);
 app.MapLiveSessionEndpoints();
 app.MapAttendanceEndpoints();
 app.MapRaiseHandEndpoints();
