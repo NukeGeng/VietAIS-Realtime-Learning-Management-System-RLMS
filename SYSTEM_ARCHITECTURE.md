@@ -342,6 +342,36 @@ Ephemeral / cache:
 ### CDN
 Dùng phân phối static/media file phù hợp, tránh đẩy binary qua API.
 
+### 9.1. Database placement và multi-tenancy
+
+Hosted SaaS hiện tại dùng một PostgreSQL shared database với Marten conjoined
+multi-tenancy. `Organization` là business entity; `TenantId` là technical isolation
+key. `ITenantContext` resolve tenant từ authenticated principal tại Infrastructure,
+sau đó mở `IDocumentSession` đúng tenant. Không nhận tenant selector từ request.
+
+```text
+Authenticated principal
+        ↓
+ITenantContext
+        ↓
+Marten tenant-aware session
+        ↓
+tenant_id + document identity / unique index
+```
+
+Organization registry và bootstrap state nằm ở control tenant. Course, class,
+enrollment, schedule, LiveSession, event stream và projection thuộc tenant của
+request. Business key local to organization phải có unique semantics tương đương
+`(tenant_id, business_key)`.
+
+Redis và realtime group cũng phải dùng tenant-scoped key. Object Storage file phải
+có tenant ownership trong metadata, object key và signed access khi module file
+được triển khai.
+
+Database-per-tenant cho Hosted Enterprise hoặc On-Premise là placement strategy ở
+Infrastructure, chưa triển khai provisioning/orchestration trong GOAL hiện tại.
+Business module không được branch theo commercial plan hoặc database placement.
+
 ---
 
 ## 10. Failure Isolation

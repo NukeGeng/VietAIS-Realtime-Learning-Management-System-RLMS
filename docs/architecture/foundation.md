@@ -100,6 +100,8 @@ versions at final submission.
 
 ## Implementation references
 
+- `docs/architecture/multi-tenancy.md` records the database placement decision and
+  audit classification for the current foundation.
 - https://martendb.io/documents/multi-tenancy.html
 - https://martendb.io/configuration/hostbuilder
 - https://wolverinefx.io/guide/durability/marten/

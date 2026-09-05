@@ -72,3 +72,4 @@ Nguyên tắc quan trọng nhất:
 - **DOMAIN_MODEL.md**, **UX_STRUCTURE.md**: domain ownership và user flows.
 - **GIT_RULES.md**: feature branch và Draft PR về `develop`.
 - **docs/architecture/foundation.md**: quyết định và verification cho Foundation và Identity.
+- **docs/architecture/multi-tenancy.md**: quyết định database, tenant isolation và placement strategy.

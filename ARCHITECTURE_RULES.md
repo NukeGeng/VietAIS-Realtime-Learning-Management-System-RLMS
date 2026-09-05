@@ -29,6 +29,19 @@ Mục tiêu là xây một nền tảng học trực tuyến có LMS + lớp h�
 - Không biến mọi event thành distributed event.
 - Không biến mọi module thành Event Sourcing nếu state-based model đơn giản hơn và đủ đúng.
 
+### 1.4. Tenant boundary và database placement
+- Hosted SaaS mặc định dùng PostgreSQL shared database với Marten conjoined multi-tenancy.
+- `Organization` là business entity; `TenantId` là technical isolation key. Tenant phải
+  được resolve từ authenticated context qua `ITenantContext` ở Infrastructure.
+- Không tin tenant selector từ request body, query, header hoặc client realtime.
+- Mọi session tenant-owned phải mở trong tenant context đúng; control-plane data phải
+  dùng control tenant rõ ràng.
+- Database-per-tenant cho enterprise/on-premise là placement strategy của
+  Infrastructure. Business module không được biết hoặc rẽ nhánh theo placement.
+- Unique constraint local trong organization phải có semantics tương đương
+  `TenantId + BusinessKey`.
+- Redis key, realtime group, projection và object metadata phải giữ tenant ownership.
+
 ---
 
 ## 2. Nguyên tắc tối ưu hiệu năng
