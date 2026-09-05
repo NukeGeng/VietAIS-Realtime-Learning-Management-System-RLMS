@@ -336,9 +336,10 @@ public sealed class LiveSessionHub(
             return;
         }
 
-        await Groups.AddToGroupAsync(Context.ConnectionId, Group(sessionId));
+        var group = Group(actor.OrganizationId, sessionId);
+        await Groups.AddToGroupAsync(Context.ConnectionId, group);
         await presence.MarkJoinedAsync(actor.OrganizationId, sessionId, actor.UserId);
-        await Clients.Group(Group(sessionId)).SendAsync("participant-joined",
+        await Clients.Group(group).SendAsync("participant-joined",
             new PresenceDelta(actor.UserId, DateTimeOffset.UtcNow));
         await base.OnConnectedAsync();
     }
@@ -369,7 +370,7 @@ public sealed class LiveSessionHub(
             AuthenticatedActor.TryCreate(principal, out var actor))
         {
             await presence.RemoveAsync(actor!.OrganizationId, sessionId, actor.UserId);
-            await Clients.Group(Group(sessionId)).SendAsync("participant-left",
+            await Clients.Group(Group(actor.OrganizationId, sessionId)).SendAsync("participant-left",
                 new PresenceDelta(actor.UserId, DateTimeOffset.UtcNow));
         }
 
@@ -404,7 +405,8 @@ public sealed class LiveSessionHub(
         return false;
     }
 
-    private static string Group(Guid sessionId) => $"live-session:{sessionId:D}";
+    private static string Group(Guid organizationId, Guid sessionId) =>
+        $"tenant:{organizationId:D}:live-session:{sessionId:D}";
 
     private async Task<bool> CanJoinAsync(AuthenticatedActor actor, LiveSession liveSession)
     {

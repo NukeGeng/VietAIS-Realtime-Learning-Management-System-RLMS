@@ -18,6 +18,10 @@ public sealed class LivePresenceStore(
             return await redis.GetDatabase().StringSetAsync(Key(organizationId, sessionId, userId),
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), PresenceTtl);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception exception)
         {
             logger.LogWarning(exception, "Unable to record ephemeral live presence for {UserId}.", userId);
@@ -32,6 +36,10 @@ public sealed class LivePresenceStore(
         {
             cancellationToken.ThrowIfCancellationRequested();
             await redis.GetDatabase().KeyDeleteAsync(Key(organizationId, sessionId, userId));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception)
         {

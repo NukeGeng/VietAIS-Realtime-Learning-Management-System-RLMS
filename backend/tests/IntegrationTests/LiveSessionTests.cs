@@ -171,6 +171,45 @@ public sealed class LiveSessionTests(FoundationFixture fixture) : IClassFixture<
         Assert.Equal(HttpStatusCode.Forbidden, deniedJoin.StatusCode);
     }
 
+    [Fact]
+    public async Task Tenant_boundary_hides_sessions_and_allows_same_course_code_in_another_tenant()
+    {
+        var organizationA = await fixture.EnsureBootstrappedAsync();
+        using var clientA = await AuthenticatedClientAsync();
+        var courseA = await CreatePublishedCourseAsync(clientA);
+        var classA = await CreateClassAsync(clientA, courseA.Id);
+        using var assignment = await PostWithCsrfAsync(clientA,
+            $"/api/academics/classes/{classA.Id:D}/teachers", new
+            {
+                TeacherId = organizationA.AdministratorId
+            });
+        assignment.EnsureSuccessStatusCode();
+        using var create = await PostWithCsrfAsync(clientA,
+            $"/api/classroom/classes/{classA.Id:D}/sessions", new { });
+        create.EnsureSuccessStatusCode();
+        var sessionA = (await create.Content.ReadFromJsonAsync<LiveSessionResponse>())!;
+
+        var organizationB = await fixture.CreateTestOrganizationAsync();
+        using var clientB = fixture.Client();
+        FoundationFixture.SetCookies(clientB,
+            await fixture.LoginCookieAsync(organizationB.Email, "correct horse battery staple",
+                organizationB.Code));
+
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await clientB.GetAsync($"/api/classroom/sessions/{sessionA.Id:D}")).StatusCode);
+        using var crossTenantJoin = await PostWithCsrfAsync(clientB,
+            $"/api/classroom/sessions/{sessionA.Id:D}/join", new { });
+        Assert.Equal(HttpStatusCode.NotFound, crossTenantJoin.StatusCode);
+
+        using var sameCode = await PostWithCsrfAsync(clientB, "/api/academics/courses", new
+        {
+            Code = courseA.Code,
+            Title = "Same code in another tenant",
+            Description = ""
+        });
+        Assert.Equal(HttpStatusCode.Created, sameCode.StatusCode);
+    }
+
     private async Task<CourseResponse> CreatePublishedCourseAsync(HttpClient client)
     {
         using var create = await PostWithCsrfAsync(client, "/api/academics/courses", new
