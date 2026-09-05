@@ -5,6 +5,7 @@ using LearningPlatform.Infrastructure.Health;
 using LearningPlatform.Infrastructure.Media;
 using LearningPlatform.Infrastructure.Persistence;
 using LearningPlatform.Infrastructure.Storage;
+using LearningPlatform.Identity.Domain;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,6 +31,18 @@ public static class InfrastructureRegistration
             options.Connection(postgres);
             options.DatabaseSchemaName = "rlms";
             options.Policies.AllDocumentsAreMultiTenanted();
+            options.Schema.For<Organization>().UniqueIndex(x => x.NormalizedCode);
+            options.Schema.For<UserAccount>().UniqueIndex(
+                Marten.Schema.UniqueIndexType.DuplicatedField,
+                "mt_user_account_email",
+                Marten.Schema.Indexing.Unique.TenancyScope.PerTenant,
+                x => x.NormalizedEmail);
+            options.Schema.For<RoleDefinition>().UniqueIndex(
+                Marten.Schema.UniqueIndexType.DuplicatedField,
+                "mt_role_definition_name",
+                Marten.Schema.Indexing.Unique.TenancyScope.PerTenant,
+                x => x.NormalizedName);
+            options.Schema.For<IdentityBootstrapState>();
             options.AutoCreateSchemaObjects = builder.Environment.IsDevelopment()
                 ? AutoCreate.CreateOrUpdate : AutoCreate.None;
         }).UseLightweightSessions().IntegrateWithWolverine();

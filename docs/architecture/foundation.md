@@ -9,7 +9,13 @@ and Identity (authenticated actor and permission contract). No empty modules.
 - .NET 10, using the installed SDK; package versions and restore lock files are committed.
 - ASP.NET Core cookie authentication for the first-party web application. Cookies are
   HttpOnly, Secure and SameSite=Lax. Unsafe API requests require an antiforgery token.
-  Login/account management is the next Identity slice; there is no development bypass.
+- Identity uses a one-time, explicitly configured bootstrap token to create the first
+  organization and administrator. The token is never a fallback credential and an empty
+  token disables bootstrap.
+- Login resolves the organization in the control tenant, verifies the account password,
+  and issues a first-party cookie containing a security stamp and permission claims.
+  Cookie validation reloads the organization, account, and role permissions so disabling
+  either the account or organization revokes existing sessions.
 - Organization and user IDs must be non-empty GUIDs in the authenticated principal.
   Marten sessions use the authenticated organization as the conjoined tenant ID.
   Never accept a tenant selector from an arbitrary request header.
@@ -42,9 +48,16 @@ and Identity (authenticated actor and permission contract). No empty modules.
 9. Cookie authentication rejects a modified cookie. Unsafe authenticated requests
    without an antiforgery token are rejected.
 
+## Identity verification
+
+The Identity slice verifies one-time bootstrap and secret handling, normalized account
+validation, password login, permission-scoped account creation, duplicate protection,
+disabled-account and suspended-organization revocation, and role lookup without a
+test-only authentication bypass.
+
 ## Remaining system work
 
-The bootstrap is covered by unit/integration tests, including durable local message
+The foundation and identity flows are covered by unit/integration tests, including durable local message
 delivery and authenticated SignalR negotiation/message exchange using test-only
 endpoints. No test authentication bypass is exposed by the application.
 Phases 1–8 and GOAL flows A–F remain required; this

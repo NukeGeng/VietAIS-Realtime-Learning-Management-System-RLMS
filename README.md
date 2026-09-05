@@ -4,11 +4,12 @@ RLMS kết hợp LMS và lớp học realtime, theo scope trong `GOAL.md`.
 
 ## Trạng thái triển khai
 
-Đang triển khai backend Foundation trên `module/be-foundation`: ASP.NET Core,
+Đang triển khai backend Foundation và Identity trên `module/be-identity`: ASP.NET Core,
 Marten/PostgreSQL, Wolverine, Redis, S3-compatible storage, cookie authentication,
-organization-scoped sessions, CSRF, health checks và kiểm thử tích hợp.
+one-time bootstrap, login, organization-scoped sessions, CSRF, role/permission checks,
+health checks và kiểm thử tích hợp.
 
-Chưa có login/account management, frontend hoặc các flow học tập hoàn chỉnh.
+Frontend và các flow học tập hoàn chỉnh chưa được triển khai.
 Các Phase 1–8 và Golden Path A–F trong GOAL vẫn phải triển khai và verify.
 
 ## Chạy local
@@ -24,12 +25,12 @@ dotnet run --project backend/src/Api --launch-profile https
 ```
 
 API HTTPS: `https://localhost:7041`; health HTTP: `http://localhost:5164/health/live`.
-Cookie Secure yêu cầu HTTPS cho các flow đăng nhập sau này. Cần trust development
+Cookie Secure yêu cầu HTTPS cho các flow đăng nhập. Cần trust development
 certificate trên máy dùng browser (`dotnet dev-certs https --trust`).
 
 `setup-local.py` tạo secret ngẫu nhiên trong `.env` và `appsettings.Local.json`
 đã được gitignore; chạy lại giữ nguyên cấu hình hiện có. Không dùng credential local
-cho production. Test tích hợp dùng database `rlms_tests`, tách khỏi `rlms`.
+cho production. Mỗi test fixture tạo database PostgreSQL riêng, tách khỏi `rlms`.
 
 Với API đang chạy:
 
@@ -68,4 +69,4 @@ Nguyên tắc quan trọng nhất:
 - **PROJECT_STRUCTURE.md**: cấu trúc thư mục chuẩn frontend/backend từ root.
 - **DOMAIN_MODEL.md**, **UX_STRUCTURE.md**: domain ownership và user flows.
 - **GIT_RULES.md**: feature branch và Draft PR về `develop`.
-- **docs/architecture/foundation.md**: quyết định và verification cho Foundation.
+- **docs/architecture/foundation.md**: quyết định và verification cho Foundation và Identity.
