@@ -317,12 +317,18 @@ Source of truth cho:
 - Course/Class/Schedule;
 - LiveSession, AttendanceRecord và RaiseHand;
 - ChatMessage history theo retention policy;
+- QuestionBankItem, immutable QuestionVersion và AssessmentActivity snapshots;
 - Event Streams;
 - StudentActivity;
 - Submission;
 - Grade;
 - Learning Progress;
 - Read Models.
+
+Event-sourced `StudentActivity` streams use Marten conjoined tenancy. The inline
+`StudentActivity` snapshot is the attempt read model; ordinary UI requests do not
+replay event history. Published activities embed selected question-version content
+so question-bank edits cannot alter an existing activity or attempt.
 
 ### Redis
 Ephemeral / cache:

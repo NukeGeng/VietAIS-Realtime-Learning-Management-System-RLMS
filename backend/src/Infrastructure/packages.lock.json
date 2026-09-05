@@ -407,6 +407,15 @@
           "Marten": "[9.32.0, )"
         }
       },
+      "learningplatform.assessment": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Classroom": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )"
+        }
+      },
       "learningplatform.classroom": {
         "type": "Project",
         "dependencies": {

@@ -447,6 +447,11 @@ StudentActivity
 
 `StudentActivity` là candidate chính cho Event Sourcing.
 
+Implementation uses a conjoined Marten event stream with an inline snapshot. The
+snapshot is the attempt read model; event history is reserved for durable state
+transitions and audit. Current transitions are `StudentActivityStarted`,
+`QuestionOpened`, `AnswerSubmitted`, `AnswerChanged`, and `ActivitySubmitted`.
+
 Stream:
 
 ```text
@@ -558,6 +563,12 @@ ActivityQuestion
 ```
 
 Có thể lưu question snapshot khi publish nếu implementation thấy phù hợp.
+
+The current implementation stores selected `ActivityQuestion` entries as immutable
+snapshots inside the activity document. Each entry retains its source
+`QuestionVersionId`, prompt, type, options, points, and objective answer for later
+grading. Publishing is the boundary after which the question list and snapshots
+cannot be changed.
 
 Invariant:
 > Sửa Question Bank sau này không làm thay đổi nội dung một bài đã phát hành/làm trước đó.

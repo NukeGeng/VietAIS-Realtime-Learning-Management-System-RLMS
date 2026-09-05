@@ -1,6 +1,6 @@
 # Foundation implementation
 
-Scope: GOAL Phase 0 plus the Phase 1 course foundation and the Phase 2 LiveSession foundation. Business modules are added only when a use case exists.
+Scope: GOAL Phase 0 through the Phase 3 learning-activity slice. Business modules are added only when a use case exists.
 The initial projects are the API composition root, technical Infrastructure,
 and Identity (authenticated actor and permission contract). No empty modules.
 
@@ -108,8 +108,28 @@ The foundation, identity, academics, and LiveSession flows are covered by
 unit/integration tests, including durable local message delivery, tenant isolation,
 authenticated SignalR negotiation, session membership, lifecycle transitions, and
 ephemeral presence. No test authentication bypass is exposed by the application.
-Phase 2 chat, raise hand, and attendance are covered by integration tests. Phases
-3–8 and GOAL flows A–F remain required.
+Phase 2 chat, raise hand, and attendance are covered by integration tests. Phase 3
+learning activity is covered by integration tests for question versioning, published
+activity snapshots, direct in-class publish, pause/resume, event-sourced attempts,
+answer changes, and submission. Phases 4–8 and GOAL flows A–F remain required.
+
+## Phase 3 learning activity
+
+Assessment owns the tenant-scoped `QuestionBankItem` and immutable
+`QuestionVersion` documents, plus `AssessmentActivity` documents. Adding a new
+question version never mutates an existing version. Publishing copies the selected
+version content into an immutable `ActivityQuestion` snapshot, so later question-bank
+changes cannot rewrite an activity already released to students. Teachers can publish
+an activity for a class or directly into a started LiveSession, then pause, resume, or
+close it.
+
+Classroom owns the `StudentActivity` event-sourced aggregate. Its inline Marten
+snapshot is the read model used by the attempt API; the event stream uses conjoined
+tenant storage. Start, question-open, answer-submit/change, and activity-submit are
+the durable transitions in this slice. The final `Submission` document stores a
+durable answer snapshot in the same tenant-scoped session. Correct answers remain
+inside the teacher-facing question-bank/activity model and are not returned in the
+student activity response.
 
 Review findings to resolve within their owning slices: snapshot/subscription gap
 recovery; immutable essay submission membership; validation bound to file/topic/policy

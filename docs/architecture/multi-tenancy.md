@@ -22,10 +22,12 @@ Marten tenant_id on every tenant-owned document
 
 The database has one `rlms` schema. Marten owns document tables and their
 `(tenant_id, id)` identity. Tenant-owned documents include courses, classes,
-enrollments, schedules, live sessions, and future activities, submissions, grades,
-and projections. The control tenant stores the organization registry and bootstrap
-state. Control-plane reads are explicit and are never served through an arbitrary
-organization session.
+enrollments, schedules, live sessions, question banks, activities, student-activity
+snapshots, submissions, attendance, chat, and future grades/projections. The event
+store is explicitly configured for conjoined tenancy, so event streams and inline
+aggregate snapshots carry the same tenant boundary. The control tenant stores the
+organization registry and bootstrap state. Control-plane reads are explicit and are
+never served through an arbitrary organization session.
 
 Business keys that are local to an organization use a tenant-scoped unique index,
 for example `(tenant_id, code)` for `Course` and `LearningClass`. A course code may
@@ -36,8 +38,8 @@ therefore be reused by two organizations while remaining unique inside each one.
 | Data | Primary storage | Tenant rule |
 | --- | --- | --- |
 | Organization registry and bootstrap marker | PostgreSQL/Marten control tenant | Platform/control data only |
-| Users, roles, courses, classes, enrollment, schedules, LiveSession, AttendanceRecord, RaiseHand, ChatMessage | PostgreSQL/Marten | Conjoined tenant session |
-| Event-sourced activities and projections | PostgreSQL/Marten | Event stream and projection carry tenant context |
+| Users, roles, courses, classes, enrollment, schedules, LiveSession, AttendanceRecord, RaiseHand, ChatMessage, QuestionBankItem, QuestionVersion, AssessmentActivity, Submission | PostgreSQL/Marten | Conjoined tenant session |
+| StudentActivity event stream and inline snapshot | PostgreSQL/Marten | Conjoined event store and tenant-scoped snapshot |
 | Presence, connection state, snapshots and short-lived counters | Redis | Every key starts with the tenant ID |
 | File metadata and ownership | PostgreSQL/Marten | Metadata is tenant-scoped |
 | PDF, DOCX, images, video and recordings | Object Storage | Object key and signed access are tenant-owned |
@@ -92,8 +94,8 @@ verify projections before switching reads.
 
 - Dedicated-store selection and provisioning for enterprise/on-premise deployments.
 - Tenant-prefixed object keys and signed file access when file features are added.
-- Tenant-aware event streams, projections, reporting jobs, and platform reporting as
-  their business modules are implemented.
+- Tenant-aware projections, reporting jobs, and platform reporting as their business
+  modules are implemented.
 
 ## Verification
 

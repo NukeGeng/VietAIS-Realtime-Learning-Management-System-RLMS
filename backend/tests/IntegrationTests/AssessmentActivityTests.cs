@@ -1,0 +1,328 @@
+using System.Net;
+using System.Net.Http.Json;
+using LearningPlatform.Academics.Api;
+using LearningPlatform.Assessment.Api;
+using LearningPlatform.Assessment.Domain;
+using LearningPlatform.Classroom.Domain;
+using LearningPlatform.Classroom.Api;
+
+namespace LearningPlatform.IntegrationTests;
+
+public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassFixture<FoundationFixture>
+{
+    [Fact]
+    public async Task Teacher_can_publish_immutable_activity_and_student_can_save_and_submit_attempt()
+    {
+        var setup = await CreateActivitySetupAsync();
+
+        using var studentActivity = await setup.Student.GetAsync(
+            $"/api/assessment/activities/{setup.Activity.Id:D}");
+        Assert.Equal(HttpStatusCode.OK, studentActivity.StatusCode);
+        var visibleActivity = await studentActivity.Content.ReadFromJsonAsync<AssessmentActivityResponse>();
+        Assert.NotNull(visibleActivity);
+        Assert.Equal(AssessmentActivityStatus.Published, visibleActivity!.Status);
+        Assert.Single(visibleActivity.Questions);
+        Assert.Equal("What is two plus two?", visibleActivity.Questions[0].Prompt);
+
+        using var start = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        Assert.Equal(HttpStatusCode.OK, start.StatusCode);
+        var started = await start.Content.ReadFromJsonAsync<StudentActivityResponse>();
+        Assert.NotNull(started);
+        Assert.Equal(StudentActivityStatus.InProgress, started!.Status);
+
+        var questionId = setup.Activity.Questions[0].Id;
+        using var open = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/questions/{questionId:D}/open",
+            new { });
+        Assert.Equal(HttpStatusCode.OK, open.StatusCode);
+        var opened = await open.Content.ReadFromJsonAsync<StudentActivityResponse>();
+        Assert.Equal(questionId, opened!.CurrentQuestionId);
+
+        using var save = await PutWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/answers/{questionId:D}",
+            new SaveAnswerRequest("B"));
+        Assert.Equal(HttpStatusCode.OK, save.StatusCode);
+        var saved = await save.Content.ReadFromJsonAsync<StudentActivityResponse>();
+        Assert.Equal("B", saved!.Answers[questionId]);
+        Assert.Equal(1, saved.AnsweredCount);
+
+        using var changed = await PutWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/answers/{questionId:D}",
+            new SaveAnswerRequest("A"));
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        var changedAttempt = await changed.Content.ReadFromJsonAsync<StudentActivityResponse>();
+        Assert.Equal("A", changedAttempt!.Answers[questionId]);
+
+        using var submit = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/submit", new { });
+        Assert.Equal(HttpStatusCode.Created, submit.StatusCode);
+        var submission = await submit.Content.ReadFromJsonAsync<SubmissionResponse>();
+        Assert.NotNull(submission);
+        Assert.Equal(setup.Activity.Id, submission!.ActivityId);
+        Assert.Contains(submission.Answers, answer => answer.QuestionId == questionId && answer.Value == "A");
+
+        using var attempt = await setup.Student.GetAsync(
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt");
+        Assert.Equal(HttpStatusCode.OK, attempt.StatusCode);
+        var completed = await attempt.Content.ReadFromJsonAsync<StudentActivityResponse>();
+        Assert.Equal(StudentActivityStatus.Submitted, completed!.Status);
+
+        using var addAfterPublish = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/questions", new
+            {
+                QuestionVersionId = setup.QuestionVersion.Id,
+                Order = 1,
+                Points = 1m
+            });
+        Assert.Equal(HttpStatusCode.Conflict, addAfterPublish.StatusCode);
+
+        using var newVersion = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/question-bank/{setup.QuestionItemId:D}/versions", new
+            {
+                Prompt = "Changed prompt must not rewrite published activity.",
+                Type = (int)QuestionType.SingleChoice,
+                Options = new[]
+                {
+                    new { Key = "A", Text = "3" },
+                    new { Key = "B", Text = "4" }
+                },
+                CorrectAnswers = new[] { "B" }
+            });
+        Assert.Equal(HttpStatusCode.Created, newVersion.StatusCode);
+
+        using var activityAfterVersion = await setup.Teacher.GetAsync(
+            $"/api/assessment/activities/{setup.Activity.Id:D}");
+        var unchanged = await activityAfterVersion.Content.ReadFromJsonAsync<AssessmentActivityResponse>();
+        Assert.Equal("What is two plus two?", unchanged!.Questions[0].Prompt);
+
+        var otherOrganization = await fixture.CreateTestOrganizationAsync();
+        using var otherTenant = fixture.Client();
+        FoundationFixture.SetCookies(otherTenant, await fixture.LoginCookieAsync(otherOrganization.Email,
+            "correct horse battery staple", otherOrganization.Code));
+        using var crossTenant = await otherTenant.GetAsync(
+            $"/api/assessment/activities/{setup.Activity.Id:D}");
+        Assert.Equal(HttpStatusCode.NotFound, crossTenant.StatusCode);
+    }
+
+    [Fact]
+    public async Task Activity_pause_blocks_answer_and_student_cannot_manage_activity()
+    {
+        var setup = await CreateActivitySetupAsync();
+        var questionId = setup.Activity.Questions[0].Id;
+
+        using var denied = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/classes/{setup.ClassId:D}/activities", new
+            {
+                Title = "Student activity",
+                Description = "",
+                Kind = (int)AssessmentActivityKind.Assignment,
+                OpensAt = (DateTimeOffset?)null,
+                DueAt = (DateTimeOffset?)null,
+                TimeLimit = (TimeSpan?)null
+            });
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+
+        using var start = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        Assert.Equal(HttpStatusCode.OK, start.StatusCode);
+
+        using var pause = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/pause", new { });
+        Assert.Equal(HttpStatusCode.OK, pause.StatusCode);
+
+        using var blocked = await PutWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/answers/{questionId:D}",
+            new SaveAnswerRequest("B"));
+        Assert.Equal(HttpStatusCode.Conflict, blocked.StatusCode);
+
+        using var resume = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/resume", new { });
+        Assert.Equal(HttpStatusCode.OK, resume.StatusCode);
+    }
+
+    [Fact]
+    public async Task Teacher_can_publish_activity_directly_in_a_started_live_session()
+    {
+        var setup = await CreateActivitySetupAsync();
+        using var create = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/classes/{setup.ClassId:D}/activities", new
+            {
+                Title = "In-class activity",
+                Description = "Published from the live classroom",
+                Kind = (int)AssessmentActivityKind.Exercise,
+                OpensAt = (DateTimeOffset?)null,
+                DueAt = (DateTimeOffset?)null,
+                TimeLimit = (TimeSpan?)null
+            });
+        create.EnsureSuccessStatusCode();
+        var draft = (await create.Content.ReadFromJsonAsync<AssessmentActivityResponse>())!;
+
+        using var addQuestion = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/activities/{draft.Id:D}/questions", new
+            {
+                QuestionVersionId = setup.QuestionVersion.Id,
+                Order = 0,
+                Points = 1m
+            });
+        addQuestion.EnsureSuccessStatusCode();
+
+        using var createSession = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/classroom/classes/{setup.ClassId:D}/sessions", new
+            {
+                TeacherId = setup.TeacherId,
+                ClassScheduleId = (Guid?)null
+            });
+        createSession.EnsureSuccessStatusCode();
+        var liveSession = (await createSession.Content.ReadFromJsonAsync<LiveSessionResponse>())!;
+        using var start = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/classroom/sessions/{liveSession.Id:D}/start", new { });
+        start.EnsureSuccessStatusCode();
+
+        using var publish = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/classroom/sessions/{liveSession.Id:D}/activities/{draft.Id:D}/publish", new { });
+        Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
+        var published = await publish.Content.ReadFromJsonAsync<AssessmentActivityResponse>();
+        Assert.Equal(liveSession.Id, published!.LiveSessionId);
+        Assert.Equal(AssessmentActivityStatus.Published, published.Status);
+    }
+
+    private async Task<ActivitySetup> CreateActivitySetupAsync()
+    {
+        var organization = await fixture.EnsureBootstrappedAsync();
+        var teacher = fixture.Client();
+        FoundationFixture.SetCookies(teacher, await fixture.LoginCookieAsync());
+        var course = await CreatePublishedCourseAsync(teacher);
+        var learningClass = await CreateClassAsync(teacher, course.Id);
+
+        using var assignment = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/teachers", new
+            {
+                TeacherId = organization.AdministratorId
+            });
+        assignment.EnsureSuccessStatusCode();
+
+        var studentEmail = $"activity-student-{Guid.NewGuid():N}@rlms.test";
+        var studentPassword = "activity student password";
+        var student = await fixture.CreateTestAccountAsync(studentEmail, studentPassword, "STUDENT");
+        using var enrollment = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/enrollments", new
+            {
+                StudentId = student.UserId
+            });
+        enrollment.EnsureSuccessStatusCode();
+
+        using var createQuestion = await PostWithCsrfAsync(teacher, "/api/assessment/question-bank", new
+        {
+            CourseId = course.Id,
+            Topic = "Arithmetic",
+            Difficulty = "Easy",
+            Prompt = "What is two plus two?",
+            Type = (int)QuestionType.SingleChoice,
+            Options = new[]
+            {
+                new { Key = "A", Text = "3" },
+                new { Key = "B", Text = "4" }
+            },
+            CorrectAnswers = new[] { "B" }
+        });
+        createQuestion.EnsureSuccessStatusCode();
+        var question = (await createQuestion.Content.ReadFromJsonAsync<QuestionBankItemDetailResponse>())!;
+        var version = Assert.Single(question.Versions);
+
+        using var createActivity = await PostWithCsrfAsync(teacher,
+            $"/api/assessment/classes/{learningClass.Id:D}/activities", new
+            {
+                Title = "Arithmetic check",
+                Description = "A short quiz",
+                Kind = (int)AssessmentActivityKind.Quiz,
+                OpensAt = (DateTimeOffset?)null,
+                DueAt = (DateTimeOffset?)null,
+                TimeLimit = (TimeSpan?)null
+            });
+        createActivity.EnsureSuccessStatusCode();
+        var activity = (await createActivity.Content.ReadFromJsonAsync<AssessmentActivityResponse>())!;
+
+        using var addQuestion = await PostWithCsrfAsync(teacher,
+            $"/api/assessment/activities/{activity.Id:D}/questions", new
+            {
+                QuestionVersionId = version.Id,
+                Order = 0,
+                Points = 5m
+            });
+        addQuestion.EnsureSuccessStatusCode();
+        activity = (await addQuestion.Content.ReadFromJsonAsync<AssessmentActivityResponse>())!;
+
+        using var publish = await PostWithCsrfAsync(teacher,
+            $"/api/assessment/activities/{activity.Id:D}/publish", new { });
+        publish.EnsureSuccessStatusCode();
+        activity = (await publish.Content.ReadFromJsonAsync<AssessmentActivityResponse>())!;
+
+        var studentClient = fixture.Client();
+        FoundationFixture.SetCookies(studentClient,
+            await fixture.LoginCookieAsync(studentEmail, studentPassword));
+        return new ActivitySetup(teacher, studentClient, learningClass.Id, organization.AdministratorId,
+            activity, question.Item.Id, version);
+    }
+
+    private async Task<CourseResponse> CreatePublishedCourseAsync(HttpClient client)
+    {
+        using var create = await PostWithCsrfAsync(client, "/api/academics/courses", new
+        {
+            Code = $"ACT-{Guid.NewGuid():N}"[..14],
+            Title = "Activity Course",
+            Description = ""
+        });
+        create.EnsureSuccessStatusCode();
+        var course = (await create.Content.ReadFromJsonAsync<CourseResponse>())!;
+        using var publish = await PostWithCsrfAsync(client,
+            $"/api/academics/courses/{course.Id:D}/publish", new { });
+        publish.EnsureSuccessStatusCode();
+        return (await publish.Content.ReadFromJsonAsync<CourseResponse>())!;
+    }
+
+    private async Task<ClassResponse> CreateClassAsync(HttpClient client, Guid courseId)
+    {
+        var startDate = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        using var create = await PostWithCsrfAsync(client, "/api/academics/classes", new
+        {
+            CourseId = courseId,
+            Code = $"ACT-{Guid.NewGuid():N}"[..14],
+            Name = "Activity Class",
+            StartDate = startDate,
+            EndDate = startDate.AddMonths(1)
+        });
+        create.EnsureSuccessStatusCode();
+        return (await create.Content.ReadFromJsonAsync<ClassResponse>())!;
+    }
+
+    private async Task<HttpResponseMessage> PostWithCsrfAsync(HttpClient client, string path, object body)
+    {
+        var authCookie = client.DefaultRequestHeaders.GetValues("Cookie").Single()
+            .Split(';', StringSplitOptions.TrimEntries)
+            .Single(cookie => cookie.StartsWith("__Host-rlms=", StringComparison.Ordinal));
+        FoundationFixture.SetCookies(client, authCookie);
+        var csrf = await fixture.IssueCsrfAsync(client);
+        FoundationFixture.SetCookies(client, authCookie, csrf.Cookie);
+        client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
+        client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf.Token);
+        return await client.PostAsJsonAsync(path, body);
+    }
+
+    private async Task<HttpResponseMessage> PutWithCsrfAsync(HttpClient client, string path, object body)
+    {
+        var authCookie = client.DefaultRequestHeaders.GetValues("Cookie").Single()
+            .Split(';', StringSplitOptions.TrimEntries)
+            .Single(cookie => cookie.StartsWith("__Host-rlms=", StringComparison.Ordinal));
+        FoundationFixture.SetCookies(client, authCookie);
+        var csrf = await fixture.IssueCsrfAsync(client);
+        FoundationFixture.SetCookies(client, authCookie, csrf.Cookie);
+        client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
+        client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf.Token);
+        return await client.PutAsJsonAsync(path, body);
+    }
+
+    private sealed record ActivitySetup(HttpClient Teacher, HttpClient Student, Guid ClassId,
+        Guid TeacherId, AssessmentActivityResponse Activity, Guid QuestionItemId,
+        QuestionVersionResponse QuestionVersion);
+}

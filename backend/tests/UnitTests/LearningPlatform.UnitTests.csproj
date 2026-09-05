@@ -9,6 +9,7 @@
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <ProjectReference Include="../../src/Modules/Identity/LearningPlatform.Identity.csproj" />
     <ProjectReference Include="../../src/Modules/Academics/LearningPlatform.Academics.csproj" />
+    <ProjectReference Include="../../src/Modules/Assessment/LearningPlatform.Assessment.csproj" />
     <ProjectReference Include="../../src/Modules/Classroom/LearningPlatform.Classroom.csproj" />
     <Using Include="Xunit" />
   </ItemGroup>

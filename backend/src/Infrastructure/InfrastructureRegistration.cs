@@ -6,6 +6,7 @@ using LearningPlatform.Infrastructure.Media;
 using LearningPlatform.Infrastructure.Persistence;
 using LearningPlatform.Infrastructure.Storage;
 using LearningPlatform.Academics.Domain;
+using LearningPlatform.Assessment.Domain;
 using LearningPlatform.Classroom.Domain;
 using LearningPlatform.Communication.Domain;
 using LearningPlatform.Identity.Domain;
@@ -34,6 +35,7 @@ public static class InfrastructureRegistration
             options.Connection(postgres);
             options.DatabaseSchemaName = "rlms";
             options.Policies.AllDocumentsAreMultiTenanted();
+            options.Events.TenancyStyle = JasperFx.MultiTenancy.TenancyStyle.Conjoined;
             options.Schema.For<Organization>().UniqueIndex(x => x.NormalizedCode);
             options.Schema.For<UserAccount>().UniqueIndex(
                 Marten.Schema.UniqueIndexType.DuplicatedField,
@@ -65,6 +67,11 @@ public static class InfrastructureRegistration
             options.Schema.For<AttendanceRecord>();
             options.Schema.For<RaiseHand>();
             options.Schema.For<ChatMessage>();
+            options.Schema.For<QuestionBankItem>();
+            options.Schema.For<QuestionVersion>();
+            options.Schema.For<AssessmentActivity>();
+            options.Schema.For<Submission>();
+            options.Projections.Snapshot<StudentActivity>(JasperFx.Events.Projections.SnapshotLifecycle.Inline);
             options.AutoCreateSchemaObjects = builder.Environment.IsDevelopment()
                 ? AutoCreate.CreateOrUpdate : AutoCreate.None;
         }).UseLightweightSessions().IntegrateWithWolverine();
