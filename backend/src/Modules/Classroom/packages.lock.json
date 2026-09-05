@@ -25,6 +25,18 @@
           "System.IO.Hashing": "10.0.5"
         }
       },
+      "WolverineFx": {
+        "type": "Direct",
+        "requested": "[6.33.0, )",
+        "resolved": "6.33.0",
+        "contentHash": "ioNpB4WnCJfL+HPbidptw5pWnFL0VCJFPcQDsQ0NOdJEL7/UaGiL1N1+OoHWqzNr5sUG+UWWioiKLNIjqMT+Gg==",
+        "dependencies": {
+          "JasperFx": "2.60.0",
+          "JasperFx.Events": "2.60.0",
+          "JasperFx.SourceGenerator": "2.60.0",
+          "NewId": "4.0.1"
+        }
+      },
       "DistributedLock.Core": {
         "type": "Transitive",
         "resolved": "1.0.8",
@@ -69,6 +81,11 @@
           "JasperFx": "2.63.0"
         }
       },
+      "JasperFx.SourceGenerator": {
+        "type": "Transitive",
+        "resolved": "2.60.0",
+        "contentHash": "+lTMnjLDPeha6ut5R8oKLyDDFUqzFK2SIiwPLp00hfH9zGQFNrhKQBCSLUxvn3H9xyFQhG8iXPztd6n75L0epA=="
+      },
       "Microsoft.Bcl.TimeProvider": {
         "type": "Transitive",
         "resolved": "10.0.0",
@@ -91,6 +108,11 @@
         "dependencies": {
           "NetTopologySuite": "[2.0.0, 3.0.0-A)"
         }
+      },
+      "NewId": {
+        "type": "Transitive",
+        "resolved": "4.0.1",
+        "contentHash": "jegBasNndmG21G3BmT51suFDCIz/sLN81j+IxmkZ4iWoaDi8LygeHiyNnYbXz5OQh9nCRJFIx1+PJrlYi1Gc9Q=="
       },
       "Npgsql.NetTopologySuite": {
         "type": "Transitive",

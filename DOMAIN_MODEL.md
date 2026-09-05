@@ -370,12 +370,13 @@ AttendanceRecord
     Id
     LiveSessionId
     StudentId
-    FirstJoinedAt
-    LastLeftAt
+    FirstJoinedAt?
+    LastLeftAt?
     TotalDuration
     Status
     AdjustedBy?
     AdjustmentReason?
+    CurrentJoinedAt?
 }
 ```
 
@@ -384,6 +385,32 @@ Attendance là durable business data.
 Presence là ephemeral.
 
 Không dùng Redis làm source of truth cho attendance cuối cùng.
+
+`AttendanceRecord` là một document tenant-scoped cho mỗi cặp
+`LiveSessionId + StudentId`. `CurrentJoinedAt` chỉ giữ segment đang mở để handler
+đóng segment khi nhận leave hoặc khi phiên kết thúc; nó không thay thế presence.
+Join/leave được xử lý bất đồng bộ và phải idempotent.
+
+---
+
+# 10.1. RaiseHand
+
+```csharp
+RaiseHand
+{
+    Id
+    LiveSessionId
+    StudentId
+    Status
+    RaisedAt
+    LoweredAt?
+    ClearedBy?
+}
+```
+
+Đây là document trạng thái nhỏ, có identity xác định theo
+`LiveSessionId + StudentId`. Broadcast SignalR chỉ là delta; document là nguồn
+durable để teacher tải lại hàng đợi giơ tay.
 
 ---
 
@@ -970,6 +997,17 @@ Announcement
 
 ## ChatMessage
 
+```csharp
+ChatMessage
+{
+    Id
+    LiveSessionId
+    SenderId
+    Body
+    SentAt
+}
+```
+
 Chat có workload riêng.
 
 Durability/retention cụ thể theo product rule.
@@ -1171,6 +1209,7 @@ Không nhét:
 | ClassSchedule | PostgreSQL/Marten | Document |
 | LiveSession | PostgreSQL/Marten | Document / event-backed nếu cần |
 | AttendanceRecord | PostgreSQL/Marten | Durable document/projection |
+| RaiseHand | PostgreSQL/Marten | Durable state document |
 | StudentActivity | Marten Event Store | Event-sourced Aggregate |
 | AssessmentActivity | PostgreSQL/Marten | Document |
 | QuestionBankItem/Version | PostgreSQL/Marten | Documents |

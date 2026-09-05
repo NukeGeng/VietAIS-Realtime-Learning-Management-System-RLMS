@@ -9,6 +9,9 @@ using LearningPlatform.Academics;
 using LearningPlatform.Academics.Api;
 using LearningPlatform.Classroom;
 using LearningPlatform.Classroom.Api;
+using LearningPlatform.Classroom.Attendance;
+using LearningPlatform.Communication;
+using LearningPlatform.Communication.Api;
 using Wolverine;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,9 +21,18 @@ builder.Services.AddApplicationAuthentication();
 builder.Services.AddIdentityModule();
 builder.Services.AddAcademicsModule();
 builder.Services.AddClassroomModule();
+builder.Services.AddCommunicationModule();
 builder.Services.AddSignalR(options => options.EnableDetailedErrors = false);
 builder.AddInfrastructure();
-builder.UseWolverine(options => options.Policies.UseDurableLocalQueues());
+builder.UseWolverine(options =>
+{
+    options.Policies.UseDurableLocalQueues();
+    options.Discovery.IncludeAssembly(typeof(ClassroomModuleRegistration).Assembly);
+    options.LocalQueue("attendance").Sequential();
+    options.PublishMessage<LiveSessionParticipantJoined>().ToLocalQueue("attendance");
+    options.PublishMessage<LiveSessionParticipantLeft>().ToLocalQueue("attendance");
+    options.PublishMessage<LiveSessionEnded>().ToLocalQueue("attendance");
+});
 
 var app = builder.Build();
 app.UseExceptionHandler();
@@ -47,6 +59,9 @@ app.MapIdentityEndpoints();
 app.MapAcademicEndpoints();
 app.MapClassEndpoints();
 app.MapLiveSessionEndpoints();
+app.MapAttendanceEndpoints();
+app.MapRaiseHandEndpoints();
+app.MapChatEndpoints();
 app.Run();
 
 public partial class Program;

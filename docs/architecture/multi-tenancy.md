@@ -36,7 +36,7 @@ therefore be reused by two organizations while remaining unique inside each one.
 | Data | Primary storage | Tenant rule |
 | --- | --- | --- |
 | Organization registry and bootstrap marker | PostgreSQL/Marten control tenant | Platform/control data only |
-| Users, roles, courses, classes, enrollment, schedules, LiveSession | PostgreSQL/Marten | Conjoined tenant session |
+| Users, roles, courses, classes, enrollment, schedules, LiveSession, AttendanceRecord, RaiseHand, ChatMessage | PostgreSQL/Marten | Conjoined tenant session |
 | Event-sourced activities and projections | PostgreSQL/Marten | Event stream and projection carry tenant context |
 | Presence, connection state, snapshots and short-lived counters | Redis | Every key starts with the tenant ID |
 | File metadata and ownership | PostgreSQL/Marten | Metadata is tenant-scoped |
@@ -46,7 +46,8 @@ The LiveSession implementation uses keys such as
 `rlms:live-presence:{tenantId}:{sessionId}:{userId}` and SignalR groups such as
 `tenant:{tenantId}:live-session:{sessionId}`. A client never supplies a tenant ID to
 select a session or group; the server resolves it from the authenticated principal
-and verifies resource membership.
+and verifies resource membership. Attendance message contracts carry the same
+organization/tenant ID so background handlers open the correct Marten session.
 
 ## Placement options
 

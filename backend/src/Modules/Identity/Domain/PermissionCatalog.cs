@@ -15,13 +15,14 @@ public static class PermissionCatalog
     public const string ReadScheduling = "academics.scheduling.read";
     public const string ManageLiveSessions = "classroom.session.manage";
     public const string JoinLiveSessions = "classroom.session.join";
+    public const string ManageAttendance = "classroom.attendance.manage";
 
     public static readonly string[] Administrator =
     [
         ManageUsers, ManageOrganizations, ManageRoles,
         ManageCourses, ReadCourses, ManageClasses, ReadClasses, ManageEnrollments, ReadEnrollments,
         ManageScheduling, ReadScheduling, ManageLiveSessions, JoinLiveSessions,
-        "classroom.activity.publish", "classroom.activity.submit", "classroom.attendance.manage",
+        "classroom.activity.publish", "classroom.activity.submit", ManageAttendance,
         "assessment.activities.manage", "assessment.activities.submit", "assessment.submissions.grade",
         "assessment.gradebook.manage", "assessment.results.read", "assessment.essays.manage",
         "learning.progress.read", "learning.resources.manage", "communication.announcements.manage",
@@ -32,7 +33,7 @@ public static class PermissionCatalog
     [
         ManageCourses, ReadCourses, ManageClasses, ReadClasses, ManageEnrollments, ReadEnrollments,
         ManageScheduling, ReadScheduling,
-        ManageLiveSessions, JoinLiveSessions, "classroom.activity.publish", "classroom.attendance.manage",
+        ManageLiveSessions, JoinLiveSessions, "classroom.activity.publish", ManageAttendance,
         "assessment.activities.manage", "assessment.submissions.grade", "assessment.gradebook.manage",
         "assessment.results.read", "assessment.essays.manage", "learning.resources.manage",
         "communication.announcements.manage", "communication.notifications.read",

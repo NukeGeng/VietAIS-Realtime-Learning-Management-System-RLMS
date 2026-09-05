@@ -315,6 +315,8 @@ Không bắt buộc mọi context phải dùng Event Sourcing. Chỉ dùng nơi 
 ### PostgreSQL + Marten
 Source of truth cho:
 - Course/Class/Schedule;
+- LiveSession, AttendanceRecord và RaiseHand;
+- ChatMessage history theo retention policy;
 - Event Streams;
 - StudentActivity;
 - Submission;
@@ -371,6 +373,12 @@ có tenant ownership trong metadata, object key và signed access khi module fil
 Database-per-tenant cho Hosted Enterprise hoặc On-Premise là placement strategy ở
 Infrastructure, chưa triển khai provisioning/orchestration trong GOAL hiện tại.
 Business module không được branch theo commercial plan hoặc database placement.
+
+Join/leave chỉ đăng ký Redis presence rồi phát message nhỏ có tenant context để
+attendance handler cập nhật `AttendanceRecord` bất đồng bộ. Khi kết thúc phiên,
+handler đóng segment còn mở và tạo bản ghi vắng cho student chưa từng join. Chat
+ghi durable message trước khi broadcast; SignalR delivery có thể thất bại mà không
+làm mất lịch sử chat hoặc ảnh hưởng media/answer/submit.
 
 ---
 

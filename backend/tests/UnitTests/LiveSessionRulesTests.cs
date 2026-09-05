@@ -37,4 +37,36 @@ public sealed class LiveSessionRulesTests
         Assert.NotEqual(tenantA, tenantB);
         Assert.StartsWith("rlms:live-presence:", tenantA, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Attendance_and_raise_hand_ids_are_stable_per_session_and_student()
+    {
+        var sessionId = Guid.NewGuid();
+        var studentId = Guid.NewGuid();
+
+        Assert.Equal(ClassroomConstants.AttendanceRecordId(sessionId, studentId),
+            ClassroomConstants.AttendanceRecordId(sessionId, studentId));
+        Assert.Equal(ClassroomConstants.RaiseHandId(sessionId, studentId),
+            ClassroomConstants.RaiseHandId(sessionId, studentId));
+        Assert.NotEqual(ClassroomConstants.AttendanceRecordId(sessionId, studentId),
+            ClassroomConstants.AttendanceRecordId(sessionId, Guid.NewGuid()));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void Attendance_adjustment_requires_a_reason(string? reason)
+    {
+        Assert.Throws<ClassroomInteractionValidationException>(() =>
+            ClassroomInteractionRules.RequireAdjustmentReason(reason));
+    }
+
+    [Fact]
+    public void Attendance_adjustment_reason_is_bounded()
+    {
+        Assert.Throws<ClassroomInteractionValidationException>(() =>
+            ClassroomInteractionRules.RequireAdjustmentReason(new string('x',
+                ClassroomInteractionRules.MaxAttendanceAdjustmentReasonLength + 1)));
+    }
 }

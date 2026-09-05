@@ -78,6 +78,23 @@ session IDs in the key. Redis failures are logged and reported as
 `PresenceRegistered = false` without failing the durable session or join response.
 The hub is scoped to one session route and broadcasts participant metadata only.
 
+## Phase 2 classroom interactions
+
+Attendance is a tenant-scoped durable Marten document keyed by
+`(LiveSessionId, StudentId)`. HTTP and SignalR join/leave paths enqueue small
+Wolverine messages after presence registration; handlers update first/last timestamps,
+accumulate duration, classify late/absent records at session end, and remain
+idempotent when delivery is retried. The three attendance message types share a
+durable sequential local queue, preserving join/leave/end order for a session while
+allowing the live request to return immediately. Teacher adjustments keep the actor
+and reason for audit. Redis presence is never used as the attendance source of truth.
+
+Chat messages are owned by the Communication module and stored as tenant-scoped
+documents. The API persists a message before broadcasting it to the session group;
+clients can reload the message snapshot if SignalR is unavailable. Raise-hand state
+is a small tenant-scoped Classroom document with deterministic identity per student
+and session, and its broadcast is best-effort after persistence.
+
 ## Identity verification
 
 The Identity slice verifies one-time bootstrap and secret handling, normalized account
@@ -91,8 +108,8 @@ The foundation, identity, academics, and LiveSession flows are covered by
 unit/integration tests, including durable local message delivery, tenant isolation,
 authenticated SignalR negotiation, session membership, lifecycle transitions, and
 ephemeral presence. No test authentication bypass is exposed by the application.
-The remaining Phase 2 work is chat, raise hand, and attendance; Phases 3–8 and GOAL
-flows A–F remain required.
+Phase 2 chat, raise hand, and attendance are covered by integration tests. Phases
+3–8 and GOAL flows A–F remain required.
 
 Review findings to resolve within their owning slices: snapshot/subscription gap
 recovery; immutable essay submission membership; validation bound to file/topic/policy
