@@ -862,9 +862,17 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "learningplatform.academics": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )"
+        }
+      },
       "learningplatform.api": {
         "type": "Project",
         "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
           "LearningPlatform.Identity": "[1.0.0, )",
           "LearningPlatform.Infrastructure": "[1.0.0, )"
         }
@@ -880,6 +888,7 @@
         "type": "Project",
         "dependencies": {
           "AWSSDK.S3": "[4.0.102.5, )",
+          "LearningPlatform.Academics": "[1.0.0, )",
           "LearningPlatform.Identity": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "StackExchange.Redis": "[3.1.31, )",

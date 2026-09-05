@@ -5,6 +5,7 @@ using LearningPlatform.Infrastructure.Health;
 using LearningPlatform.Infrastructure.Media;
 using LearningPlatform.Infrastructure.Persistence;
 using LearningPlatform.Infrastructure.Storage;
+using LearningPlatform.Academics.Domain;
 using LearningPlatform.Identity.Domain;
 using Marten;
 using Microsoft.Extensions.Configuration;
@@ -43,6 +44,13 @@ public static class InfrastructureRegistration
                 Marten.Schema.Indexing.Unique.TenancyScope.PerTenant,
                 x => x.NormalizedName);
             options.Schema.For<IdentityBootstrapState>();
+            options.Schema.For<Course>().UniqueIndex(
+                Marten.Schema.UniqueIndexType.DuplicatedField,
+                "mt_course_code",
+                Marten.Schema.Indexing.Unique.TenancyScope.PerTenant,
+                x => x.Code);
+            options.Schema.For<CourseModule>();
+            options.Schema.For<Lesson>();
             options.AutoCreateSchemaObjects = builder.Environment.IsDevelopment()
                 ? AutoCreate.CreateOrUpdate : AutoCreate.None;
         }).UseLightweightSessions().IntegrateWithWolverine();

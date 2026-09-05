@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
     <ProjectReference Include="../Infrastructure/LearningPlatform.Infrastructure.csproj" />
+    <ProjectReference Include="../Modules/Academics/LearningPlatform.Academics.csproj" />
     <ProjectReference Include="../Modules/Identity/LearningPlatform.Identity.csproj" />
   </ItemGroup>
 </Project>

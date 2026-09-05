@@ -123,9 +123,27 @@ public sealed class FoundationFixture : WebApplicationFactory<Program>
         using var response = await client.GetAsync("/api/identity/csrf");
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<CsrfPayload>();
-        var cookie = response.Headers.GetValues("Set-Cookie")
-            .Single(value => value.StartsWith("__Host-rlms-csrf=", StringComparison.Ordinal))
-            .Split(';')[0];
+        var setCookies = response.Headers.TryGetValues("Set-Cookie", out var headers)
+            ? headers.ToArray()
+            : [];
+        var cookie = setCookies
+            .FirstOrDefault(value => value.StartsWith("__Host-rlms-csrf=", StringComparison.Ordinal))
+            ?.Split(';')[0];
+        if (cookie is null && client.DefaultRequestHeaders.TryGetValues("Cookie", out var requestCookies))
+        {
+            cookie = requestCookies
+                .SelectMany(value => value.Split(';', StringSplitOptions.TrimEntries))
+                .FirstOrDefault(value => value.StartsWith("__Host-rlms-csrf=", StringComparison.Ordinal));
+        }
+        if (cookie is null)
+        {
+            throw new InvalidOperationException(
+                $"CSRF response did not set a cookie ({(int)response.StatusCode}): " +
+                $"{await response.Content.ReadAsStringAsync()} Request cookies: " +
+                (client.DefaultRequestHeaders.TryGetValues("Cookie", out var existing)
+                    ? string.Join("; ", existing)
+                    : "<none>"));
+        }
         return (payload!.Token, cookie);
     }
 

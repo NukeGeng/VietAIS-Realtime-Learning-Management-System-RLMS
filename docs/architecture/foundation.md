@@ -1,6 +1,6 @@
 # Foundation implementation
 
-Scope: GOAL Phase 0. Business modules are added only when a use case exists.
+Scope: GOAL Phase 0 plus the Phase 1 course foundation. Business modules are added only when a use case exists.
 The initial projects are the API composition root, technical Infrastructure,
 and Identity (authenticated actor and permission contract). No empty modules.
 
@@ -47,6 +47,14 @@ and Identity (authenticated actor and permission contract). No empty modules.
    does not expose credentials or exception details.
 9. Cookie authentication rejects a modified cookie. Unsafe authenticated requests
    without an antiforgery token are rejected.
+
+## Phase 1 course slice
+
+The Academics slice now owns `Course`, `CourseModule`, and `Lesson` documents. Course
+codes are unique within an organization, and course structure is loaded only for the
+requested course. Course creation, editing, publishing, and content authoring use
+permission policies; the student role is not granted an unfiltered course catalogue
+before enrollment filtering exists.
 
 ## Identity verification
 

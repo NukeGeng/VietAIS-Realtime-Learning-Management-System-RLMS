@@ -4,7 +4,8 @@ RLMS kết hợp LMS và lớp học realtime, theo scope trong `GOAL.md`.
 
 ## Trạng thái triển khai
 
-Đang triển khai backend Foundation và Identity trên `module/be-identity`: ASP.NET Core,
+Đang triển khai backend Foundation, Identity và Academics trên
+`module/be-course-management`: ASP.NET Core,
 Marten/PostgreSQL, Wolverine, Redis, S3-compatible storage, cookie authentication,
 one-time bootstrap, login, organization-scoped sessions, CSRF, role/permission checks,
 health checks và kiểm thử tích hợp.
