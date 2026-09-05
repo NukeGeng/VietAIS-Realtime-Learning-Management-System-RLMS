@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using LearningPlatform.Identity;
 using LearningPlatform.Identity.Api;
+using LearningPlatform.Academics;
 using LearningPlatform.Academics.Api;
 using Wolverine;
 
@@ -13,6 +14,7 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true).AddE
 builder.Services.AddProblemDetails();
 builder.Services.AddApplicationAuthentication();
 builder.Services.AddIdentityModule();
+builder.Services.AddAcademicsModule();
 builder.Services.AddSignalR(options => options.EnableDetailedErrors = false);
 builder.AddInfrastructure();
 builder.UseWolverine(options => options.Policies.UseDurableLocalQueues());
