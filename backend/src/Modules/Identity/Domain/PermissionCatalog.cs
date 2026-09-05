@@ -13,12 +13,14 @@ public static class PermissionCatalog
     public const string ReadEnrollments = "academics.enrollments.read";
     public const string ManageScheduling = "academics.scheduling.manage";
     public const string ReadScheduling = "academics.scheduling.read";
+    public const string ManageLiveSessions = "classroom.session.manage";
+    public const string JoinLiveSessions = "classroom.session.join";
 
     public static readonly string[] Administrator =
     [
         ManageUsers, ManageOrganizations, ManageRoles,
         ManageCourses, ReadCourses, ManageClasses, ReadClasses, ManageEnrollments, ReadEnrollments,
-        ManageScheduling, ReadScheduling, "classroom.session.manage", "classroom.session.join",
+        ManageScheduling, ReadScheduling, ManageLiveSessions, JoinLiveSessions,
         "classroom.activity.publish", "classroom.activity.submit", "classroom.attendance.manage",
         "assessment.activities.manage", "assessment.activities.submit", "assessment.submissions.grade",
         "assessment.gradebook.manage", "assessment.results.read", "assessment.essays.manage",
@@ -30,7 +32,7 @@ public static class PermissionCatalog
     [
         ManageCourses, ReadCourses, ManageClasses, ReadClasses, ManageEnrollments, ReadEnrollments,
         ManageScheduling, ReadScheduling,
-        "classroom.session.manage", "classroom.activity.publish", "classroom.attendance.manage",
+        ManageLiveSessions, JoinLiveSessions, "classroom.activity.publish", "classroom.attendance.manage",
         "assessment.activities.manage", "assessment.submissions.grade", "assessment.gradebook.manage",
         "assessment.results.read", "assessment.essays.manage", "learning.resources.manage",
         "communication.announcements.manage", "communication.notifications.read",
@@ -39,7 +41,7 @@ public static class PermissionCatalog
 
     public static readonly string[] Student =
     [
-        ReadClasses, ReadEnrollments, "classroom.session.join", "classroom.activity.submit",
+        ReadClasses, ReadEnrollments, JoinLiveSessions, "classroom.activity.submit",
         "assessment.activities.submit", "assessment.results.read", "learning.progress.read",
         "communication.notifications.read"
     ];

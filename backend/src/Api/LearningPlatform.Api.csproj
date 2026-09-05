@@ -2,6 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="../Infrastructure/LearningPlatform.Infrastructure.csproj" />
     <ProjectReference Include="../Modules/Academics/LearningPlatform.Academics.csproj" />
+    <ProjectReference Include="../Modules/Classroom/LearningPlatform.Classroom.csproj" />
     <ProjectReference Include="../Modules/Identity/LearningPlatform.Identity.csproj" />
   </ItemGroup>
 </Project>

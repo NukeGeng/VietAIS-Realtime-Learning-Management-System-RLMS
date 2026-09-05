@@ -7,6 +7,7 @@
     <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="AWSSDK.S3" />
     <ProjectReference Include="../Modules/Academics/LearningPlatform.Academics.csproj" />
+    <ProjectReference Include="../Modules/Classroom/LearningPlatform.Classroom.csproj" />
     <ProjectReference Include="../Modules/Identity/LearningPlatform.Identity.csproj" />
   </ItemGroup>
 </Project>

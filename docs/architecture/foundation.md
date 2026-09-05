@@ -1,6 +1,6 @@
 # Foundation implementation
 
-Scope: GOAL Phase 0 plus the Phase 1 course foundation. Business modules are added only when a use case exists.
+Scope: GOAL Phase 0 plus the Phase 1 course foundation and the Phase 2 LiveSession foundation. Business modules are added only when a use case exists.
 The initial projects are the API composition root, technical Infrastructure,
 and Identity (authenticated actor and permission contract). No empty modules.
 
@@ -31,8 +31,8 @@ and Identity (authenticated actor and permission contract). No empty modules.
 - Liveness only checks that the API is running. Core readiness checks PostgreSQL.
   Storage/Redis dependency health is reported separately so those failures do not
   remove answer/submission APIs from service.
-- Media configuration defines an external SFU endpoint; session-specific access
-  tokens belong to the upcoming LiveSession use case. No media payload in the API.
+- Media configuration defines an external SFU endpoint; LiveSession join returns only
+  session metadata and an opaque access token. No media payload is stored in the API.
 
 ## Verification cases, defined before implementation
 
@@ -62,6 +62,21 @@ student class reads are filtered through active enrollment, and schedule creatio
 requires an active teacher assignment. Enrollment and teacher assignment IDs are
 deterministic so retries cannot create multiple active records for the same pair.
 
+## Phase 2 LiveSession foundation
+
+The Classroom slice now owns a tenant-scoped `LiveSession` document with a small
+durable lifecycle: scheduled, started, and ended. Session creation requires a class
+teacher assignment; teachers can manage only their assigned class, while
+administrators retain organization management access. Students and assigned teachers
+must pass the class membership check before reading or joining a session.
+
+Join returns the session metadata and an opaque media access token for the configured
+external SFU boundary. It does not carry media payloads. HTTP join/leave and the
+SignalR hub use Redis only for short-lived presence keys, with organization and
+session IDs in the key. Redis failures are logged and reported as
+`PresenceRegistered = false` without failing the durable session or join response.
+The hub is scoped to one session route and broadcasts participant metadata only.
+
 ## Identity verification
 
 The Identity slice verifies one-time bootstrap and secret handling, normalized account
@@ -71,11 +86,12 @@ test-only authentication bypass.
 
 ## Remaining system work
 
-The foundation and identity flows are covered by unit/integration tests, including durable local message
-delivery and authenticated SignalR negotiation/message exchange using test-only
-endpoints. No test authentication bypass is exposed by the application.
-Phases 1–8 and GOAL flows A–F remain required; this
-foundation does not claim any learning, grading, essay, or live teaching flow.
+The foundation, identity, academics, and LiveSession flows are covered by
+unit/integration tests, including durable local message delivery, tenant isolation,
+authenticated SignalR negotiation, session membership, lifecycle transitions, and
+ephemeral presence. No test authentication bypass is exposed by the application.
+The remaining Phase 2 work is chat, raise hand, and attendance; Phases 3–8 and GOAL
+flows A–F remain required.
 
 Review findings to resolve within their owning slices: snapshot/subscription gap
 recovery; immutable essay submission membership; validation bound to file/topic/policy

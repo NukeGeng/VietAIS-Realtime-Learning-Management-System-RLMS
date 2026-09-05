@@ -4,11 +4,12 @@ RLMS kết hợp LMS và lớp học realtime, theo scope trong `GOAL.md`.
 
 ## Trạng thái triển khai
 
-Đang triển khai backend Foundation, Identity và Academics trên
-`module/be-class-enrollment`: ASP.NET Core,
+Đang triển khai backend Foundation, Identity, Academics và Classroom LiveSession trên
+`module/be-live-session`: ASP.NET Core,
 Marten/PostgreSQL, Wolverine, Redis, S3-compatible storage, cookie authentication,
 one-time bootstrap, login, organization-scoped sessions, CSRF, role/permission checks,
-health checks và kiểm thử tích hợp.
+health checks, course/class/enrollment/scheduling, LiveSession lifecycle, SignalR
+session groups, Redis presence và kiểm thử tích hợp.
 
 Frontend và các flow học tập hoàn chỉnh chưa được triển khai.
 Các Phase 1–8 và Golden Path A–F trong GOAL vẫn phải triển khai và verify.
@@ -44,8 +45,8 @@ Lệnh thứ hai tạm dừng Redis/MinIO của riêng RLMS, kiểm tra core hea
 lại chúng. Chỉ chạy trong môi trường local không có người dùng khác đang học.
 
 PostgreSQL: localhost:55432; Redis: localhost:56379; S3: localhost:59000;
-MinIO console: localhost:59001. Media endpoint được cấu hình nhưng chưa có SFU chạy;
-media integration sẽ được triển khai cùng LiveSession.
+MinIO console: localhost:59001. Media endpoint là boundary tới SFU bên ngoài;
+local compose chưa chạy SFU thật.
 
 ## Tài liệu
 

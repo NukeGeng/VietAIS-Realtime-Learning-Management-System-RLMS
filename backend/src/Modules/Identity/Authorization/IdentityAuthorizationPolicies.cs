@@ -14,6 +14,8 @@ public static class IdentityAuthorizationPolicies
     public const string ReadEnrollments = "academics-enrollments-read";
     public const string ManageScheduling = "academics-scheduling-manage";
     public const string ReadScheduling = "academics-scheduling-read";
+    public const string ManageLiveSessions = "classroom-live-session-manage";
+    public const string JoinLiveSessions = "classroom-live-session-join";
 
     public static void AddIdentityPolicies(AuthorizationOptions options)
     {
@@ -28,6 +30,8 @@ public static class IdentityAuthorizationPolicies
         AddPermissionPolicy(options, ReadEnrollments, PermissionCatalog.ReadEnrollments);
         AddPermissionPolicy(options, ManageScheduling, PermissionCatalog.ManageScheduling);
         AddPermissionPolicy(options, ReadScheduling, PermissionCatalog.ReadScheduling);
+        AddPermissionPolicy(options, ManageLiveSessions, PermissionCatalog.ManageLiveSessions);
+        AddPermissionPolicy(options, JoinLiveSessions, PermissionCatalog.JoinLiveSessions);
     }
 
     private static void AddPermissionPolicy(AuthorizationOptions options, string policyName,

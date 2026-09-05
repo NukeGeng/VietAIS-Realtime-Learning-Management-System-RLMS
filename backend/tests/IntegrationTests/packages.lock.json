@@ -873,8 +873,18 @@
         "type": "Project",
         "dependencies": {
           "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Classroom": "[1.0.0, )",
           "LearningPlatform.Identity": "[1.0.0, )",
           "LearningPlatform.Infrastructure": "[1.0.0, )"
+        }
+      },
+      "learningplatform.classroom": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "StackExchange.Redis": "[3.1.31, )"
         }
       },
       "learningplatform.identity": {
@@ -889,6 +899,7 @@
         "dependencies": {
           "AWSSDK.S3": "[4.0.102.5, )",
           "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Classroom": "[1.0.0, )",
           "LearningPlatform.Identity": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "StackExchange.Redis": "[3.1.31, )",

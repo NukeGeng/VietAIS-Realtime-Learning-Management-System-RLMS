@@ -6,6 +6,7 @@ using LearningPlatform.Infrastructure.Media;
 using LearningPlatform.Infrastructure.Persistence;
 using LearningPlatform.Infrastructure.Storage;
 using LearningPlatform.Academics.Domain;
+using LearningPlatform.Classroom.Domain;
 using LearningPlatform.Identity.Domain;
 using Marten;
 using Microsoft.Extensions.Configuration;
@@ -59,6 +60,7 @@ public static class InfrastructureRegistration
             options.Schema.For<Enrollment>();
             options.Schema.For<ClassTeacherAssignment>();
             options.Schema.For<ClassSchedule>();
+            options.Schema.For<LiveSession>();
             options.AutoCreateSchemaObjects = builder.Environment.IsDevelopment()
                 ? AutoCreate.CreateOrUpdate : AutoCreate.None;
         }).UseLightweightSessions().IntegrateWithWolverine();
