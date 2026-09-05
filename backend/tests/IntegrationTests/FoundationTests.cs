@@ -94,6 +94,19 @@ public sealed class FoundationTests(FoundationFixture fixture) : IClassFixture<F
     }
 
     [Fact]
+    public async Task Tenant_context_comes_from_the_authenticated_actor_not_a_request_header()
+    {
+        var expected = await fixture.EnsureBootstrappedAsync();
+        using var client = fixture.Client();
+        FoundationFixture.SetCookies(client, await fixture.LoginCookieAsync());
+        client.DefaultRequestHeaders.Add("X-Organization-Id", Guid.NewGuid().ToString("D"));
+
+        var context = await client.GetFromJsonAsync<TenantContextResponse>("/api/probe/tenant-context");
+        Assert.Equal(expected.OrganizationId, context!.OrganizationId);
+        Assert.Equal(expected.OrganizationId.ToString("D"), context.TenantId);
+    }
+
+    [Fact]
     public async Task Redis_ephemeral_round_trip()
     {
         var redis = fixture.Services.GetRequiredService<IConnectionMultiplexer>().GetDatabase();
@@ -203,4 +216,5 @@ public sealed class FoundationTests(FoundationFixture fixture) : IClassFixture<F
     }
 
     private sealed record CsrfToken(string Token);
+    private sealed record TenantContextResponse(Guid OrganizationId, string TenantId);
 }

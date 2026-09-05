@@ -66,10 +66,11 @@ public static class InfrastructureRegistration
         }).UseLightweightSessions().IntegrateWithWolverine();
 
         builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<ITenantContext, HttpTenantContext>();
         // Override default HTTP session resolution: there is no unscoped fallback.
         builder.Services.AddScoped<IDocumentSession>(sp => OrganizationSession.Open(
             sp.GetRequiredService<IDocumentStore>(),
-            sp.GetRequiredService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()));
+            sp.GetRequiredService<ITenantContext>()));
         builder.Services.AddScoped<IQuerySession>(sp => sp.GetRequiredService<IDocumentSession>());
         builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(postgres));
         builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>

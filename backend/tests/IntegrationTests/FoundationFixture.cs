@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using LearningPlatform.Identity.Authorization;
 using LearningPlatform.Identity.Domain;
 using LearningPlatform.Identity.Api;
+using LearningPlatform.Infrastructure.Persistence;
 using Marten;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -362,6 +363,8 @@ public sealed class ProbeEndpoints : IStartupFilter
                 var document = await session.LoadAsync<TenantProbe>(id);
                 return document is null ? Results.NotFound() : Results.Ok(document);
             }).RequireAuthorization();
+            endpoints.MapGet("/api/probe/tenant-context", (ITenantContext tenant) =>
+                Results.Ok(new { tenant.OrganizationId, tenant.TenantId })).RequireAuthorization();
             endpoints.MapHub<ProbeHub>("/hubs/probe").RequireAuthorization();
         });
     };

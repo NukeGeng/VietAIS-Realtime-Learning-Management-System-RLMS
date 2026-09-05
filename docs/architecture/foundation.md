@@ -17,8 +17,9 @@ and Identity (authenticated actor and permission contract). No empty modules.
   Cookie validation reloads the organization, account, and role permissions so disabling
   either the account or organization revokes existing sessions.
 - Organization and user IDs must be non-empty GUIDs in the authenticated principal.
-  Marten sessions use the authenticated organization as the conjoined tenant ID.
-  Never accept a tenant selector from an arbitrary request header.
+  `ITenantContext` resolves the authenticated organization once at the infrastructure
+  boundary and exposes the conjoined tenant ID to the session factory. Never accept a
+  tenant selector from an arbitrary request header.
 - PostgreSQL/Marten stores durable data. Wolverine/Marten integration supplies a
   durable messaging boundary without introducing a broker. Business handlers will
   opt into transactional messaging as their use cases are implemented.
