@@ -231,6 +231,12 @@ public static class ReportingProjectionHandler
             .Where(value => value.LearningClassId == classId && value.StudentId == studentId &&
                 activityIds.Contains(value.ActivityId))
             .ToListAsync(cancellationToken);
+        // A published grade can exist before its configured release time. Keep
+        // the student's report consistent with the student-facing gradebook and
+        // progress endpoints until that result is released.
+        progress = progress.Where(value => !activityById.TryGetValue(value.ActivityId,
+                out var activity) || AssessmentRules.IsResultsReleased(activity, now))
+            .ToList();
         var lessons = await session.Query<Lesson>()
             .Where(value => value.CourseId == learningClass.CourseId &&
                 value.Status == AcademicContentStatus.Published)
@@ -262,10 +268,6 @@ public static class ReportingProjectionHandler
                 return (Weight: weight, Score: normalized * weight);
             })
             .ToArray();
-        var completedEssayCount = grades.Where(value => value.EssayAssignmentId is not null)
-            .Select(value => value.EssayAssignmentId!.Value)
-            .Distinct()
-            .Count();
         var snapshot = await session.LoadAsync<StudentReportSnapshot>(
             ReportingConstants.StudentSnapshotId(classId, studentId), cancellationToken) ??
             new StudentReportSnapshot
@@ -281,8 +283,7 @@ public static class ReportingProjectionHandler
             : decimal.Round(weightedGrades.Sum(value => value.Score) * 100m /
                 weightedGrades.Sum(value => value.Weight), 2);
         snapshot.ActivityCount = activityIds.Length;
-        snapshot.CompletedActivityCount = progress.Count(value => value.Status == LearningProgressStatus.Completed) +
-            completedEssayCount;
+        snapshot.CompletedActivityCount = progress.Count(value => value.Status == LearningProgressStatus.Completed);
         snapshot.ActivityCompletionPercent = activityIds.Length == 0
             ? 0m
             : decimal.Round(snapshot.CompletedActivityCount * 100m / activityIds.Length, 2);

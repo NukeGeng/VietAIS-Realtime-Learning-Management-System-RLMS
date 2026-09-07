@@ -111,6 +111,22 @@ public sealed class IdentityTests(FoundationFixture fixture) : IClassFixture<Fou
     }
 
     [Fact]
+    public async Task User_listing_handles_extreme_page_numbers_without_overflow()
+    {
+        await fixture.EnsureBootstrappedAsync();
+        using var adminClient = fixture.Client();
+        var adminCookie = await LoginAsync(adminClient, "admin@rlms.test",
+            "correct horse battery staple");
+        FoundationFixture.SetCookies(adminClient, adminCookie);
+
+        using var users = await adminClient.GetAsync(
+            "/api/identity/users?page=2147483647&pageSize=100");
+
+        Assert.Equal(HttpStatusCode.OK, users.StatusCode);
+        Assert.Empty(await users.Content.ReadFromJsonAsync<AccountResponse[]>() ?? []);
+    }
+
+    [Fact]
     public async Task Admin_can_manage_custom_roles_without_escalating_permissions()
     {
         await fixture.EnsureBootstrappedAsync();

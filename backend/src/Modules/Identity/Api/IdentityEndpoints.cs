@@ -450,8 +450,12 @@ public static class IdentityEndpoints
     private static async Task<IResult> GetUsersAsync(
         int? page, int? pageSize, IQuerySession session, CancellationToken cancellationToken)
     {
-        var safePage = Math.Max(page ?? 1, 1);
         var safePageSize = Math.Clamp(pageSize ?? 50, 1, 100);
+        // Keep the computed Skip value inside Int32 for the LINQ provider even
+        // when a client sends the largest possible page number.
+        var maxPage = (int)Math.Min(int.MaxValue,
+            (long)int.MaxValue / safePageSize + 1);
+        var safePage = Math.Clamp(page ?? 1, 1, maxPage);
         var users = await session.Query<UserAccount>().OrderBy(user => user.DisplayName)
             .Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync(cancellationToken);
         return Results.Ok(users.Select(user => AccountResponse.From(user, [])));

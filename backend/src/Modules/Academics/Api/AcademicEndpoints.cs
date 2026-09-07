@@ -47,8 +47,12 @@ public static class AcademicEndpoints
             return Results.Forbid();
         }
 
-        var safePage = Math.Max(page ?? 1, 1);
         var safePageSize = Math.Clamp(pageSize ?? 50, 1, 100);
+        // Keep the computed Skip value inside Int32 for the LINQ provider even
+        // when a client sends the largest possible page number.
+        var maxPage = (int)Math.Min(int.MaxValue,
+            (long)int.MaxValue / safePageSize + 1);
+        var safePage = Math.Clamp(page ?? 1, 1, maxPage);
         IQueryable<Course> query = session.Query<Course>();
         if (actor!.Permissions.Contains(PermissionCatalog.ManageOrganizations,
                 StringComparer.Ordinal))

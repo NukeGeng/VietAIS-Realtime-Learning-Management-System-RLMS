@@ -86,6 +86,18 @@ public sealed class AcademicTests(FoundationFixture fixture) : IClassFixture<Fou
         Assert.Empty(await courses.Content.ReadFromJsonAsync<CourseResponse[]>() ?? []);
     }
 
+    [Fact]
+    public async Task Course_listing_handles_extreme_page_numbers_without_overflow()
+    {
+        using var client = await AuthenticatedClientAsync();
+
+        using var courses = await client.GetAsync(
+            "/api/academics/courses?page=2147483647&pageSize=100");
+
+        Assert.Equal(HttpStatusCode.OK, courses.StatusCode);
+        Assert.Empty(await courses.Content.ReadFromJsonAsync<CourseResponse[]>() ?? []);
+    }
+
     private async Task<HttpClient> AuthenticatedClientAsync()
     {
         var client = fixture.Client();
