@@ -731,6 +731,77 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
     }
 
     [Fact]
+    public async Task Student_detail_snapshot_repairs_when_projection_is_behind_aggregate()
+    {
+        var setup = await CreateActivitySetupAsync();
+        using var detailTeacher = await CreateAssignedTeacherAsync(setup);
+
+        using var start = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        start.EnsureSuccessStatusCode();
+        var started = (await start.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
+        var questionId = setup.Activity.Questions[0].Id;
+        var organization = await fixture.EnsureBootstrappedAsync();
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        StudentAttemptDetailView? projected = null;
+        while (projected is null)
+        {
+            await using var query = store.QuerySession(organization.OrganizationId.ToString("D"));
+            projected = await query.LoadAsync<StudentAttemptDetailView>(started.Id, timeout.Token);
+            if (projected is not null)
+            {
+                break;
+            }
+
+            await Task.Delay(100, timeout.Token);
+        }
+
+        Assert.Equal(started.Version, projected!.Version);
+
+        using var save = await PutWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/answers/{questionId:D}",
+            new SaveAnswerRequest("B"));
+        save.EnsureSuccessStatusCode();
+        var saved = (await save.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
+
+        StudentAttemptDetailView? current = null;
+        while (current is null || current.Version < saved.Version)
+        {
+            await using var query = store.QuerySession(organization.OrganizationId.ToString("D"));
+            current = await query.LoadAsync<StudentAttemptDetailView>(started.Id, timeout.Token);
+            if (current is not null && current.Version >= saved.Version)
+            {
+                break;
+            }
+
+            await Task.Delay(100, timeout.Token);
+        }
+
+        Assert.NotNull(current);
+        await using (var staleSession = store.LightweightSession(
+                         organization.OrganizationId.ToString("D")))
+        {
+            current!.Answers = [];
+            current.AnsweredCount = 0;
+            current.Progress = 0m;
+            current.Version = started.Version;
+            staleSession.Store(current);
+            await staleSession.SaveChangesAsync(timeout.Token);
+        }
+
+        using var detailResponse = await detailTeacher.GetAsync(
+            $"/api/assessment/attempts/{started.Id:D}/detail", timeout.Token);
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        var detail = await detailResponse.Content.ReadFromJsonAsync<StudentAttemptDetailResponse>(
+            timeout.Token);
+        Assert.Equal(saved.Version, detail!.Version);
+        Assert.Equal("B", detail.Answers[questionId]);
+        Assert.Equal(1, detail.AnsweredCount);
+    }
+
+    [Fact]
     public async Task Exam_enforces_attempt_limit_and_creates_a_separate_attempt_for_a_retake()
     {
         var setup = await CreateActivitySetupAsync(activityKind: AssessmentActivityKind.Exam,

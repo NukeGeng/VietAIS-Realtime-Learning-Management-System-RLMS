@@ -542,14 +542,19 @@ public static class AssessmentEndpoints
         }
 
         var detail = await session.LoadAsync<StudentAttemptDetailView>(attemptId, cancellationToken);
-        if (detail is null)
+        var attempt = await session.LoadAsync<StudentActivity>(attemptId, cancellationToken);
+        if (attempt is null)
         {
-            var attempt = await session.LoadAsync<StudentActivity>(attemptId, cancellationToken);
-            if (attempt is null)
-            {
-                return Results.NotFound();
-            }
+            return Results.NotFound();
+        }
 
+        // StudentAttemptDetailView is an asynchronous read model. A teacher
+        // opening or reconnecting to detail must not be handed an older
+        // snapshot while the durable StudentActivity aggregate is already
+        // newer. Use the aggregate as the read-repair source for this
+        // on-demand query; the next projection message will persist the view.
+        if (detail is null || detail.Version < attempt.Version)
+        {
             var activity = await session.LoadAsync<AssessmentActivity>(attempt.ActivityId, cancellationToken);
             if (activity is null)
             {
@@ -559,8 +564,8 @@ public static class AssessmentEndpoints
             detail = StudentAttemptDetailViewFrom(attempt, activity.Questions.Count);
         }
 
-        if (detail.OrganizationId != actor!.OrganizationId ||
-            !await CanReadStudentDetailAsync(actor, detail.LearningClassId, academics,
+        if (attempt.OrganizationId != actor!.OrganizationId ||
+            !await CanReadStudentDetailAsync(actor, attempt.LearningClassId, academics,
                 cancellationToken))
         {
             return Results.Forbid();
