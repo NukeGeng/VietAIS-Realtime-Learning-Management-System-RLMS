@@ -1,8 +1,9 @@
 # Foundation implementation
 
-Scope: GOAL Phase 0 through the Phase 4 realtime activity slice. Business modules are added only when a use case exists.
-The initial projects are the API composition root, technical Infrastructure,
-and Identity (authenticated actor and permission contract). No empty modules.
+Scope: the backend slices currently required by GOAL. Business modules are added
+only when a use case exists; the repository remains a modular monolith with no
+empty modules. The API composition root and technical Infrastructure host Identity,
+Academics, Classroom, Assessment, Learning, Communication and Reporting.
 
 ## Decisions
 
@@ -84,10 +85,13 @@ Attendance is a tenant-scoped durable Marten document keyed by
 `(LiveSessionId, StudentId)`. HTTP and SignalR join/leave paths enqueue small
 Wolverine messages after presence registration; handlers update first/last timestamps,
 accumulate duration, classify late/absent records at session end, and remain
-idempotent when delivery is retried. The three attendance message types share a
-durable sequential local queue, preserving join/leave/end order for a session while
-allowing the live request to return immediately. Teacher adjustments keep the actor
-and reason for audit. Redis presence is never used as the attendance source of truth.
+idempotent when delivery is retried. Each open attendance segment tracks its active
+connection IDs, so closing one browser or SignalR connection cannot close the segment
+while another connection for the same student remains. The three attendance message
+types share a durable sequential local queue, preserving join/leave/end order for a
+session while allowing the live request to return immediately. Teacher adjustments keep
+the actor and reason for audit. Redis presence is never used as the attendance source
+of truth.
 
 Chat messages are owned by the Communication module and stored as tenant-scoped
 documents. The API persists a message before broadcasting it to the session group;
@@ -99,20 +103,23 @@ and session, and its broadcast is best-effort after persistence.
 
 The Identity slice verifies one-time bootstrap and secret handling, normalized account
 validation, password login, permission-scoped account creation, duplicate protection,
-disabled-account and suspended-organization revocation, and role lookup without a
+tenant-scoped custom role CRUD with an allowlisted permission catalog, protected built-in
+roles, disabled-account and suspended-organization revocation, and role lookup without a
 test-only authentication bypass.
 
-## Remaining system work
+## Implemented slices and boundary
 
-The foundation, identity, academics, and LiveSession flows are covered by
-unit/integration tests, including durable local message delivery, tenant isolation,
-authenticated SignalR negotiation, session membership, lifecycle transitions, and
-ephemeral presence. No test authentication bypass is exposed by the application.
-Phase 2 chat, raise hand, and attendance are covered by integration tests. Phase 3
-learning activity is covered by integration tests for question versioning, published
-activity snapshots, direct in-class publish, pause/resume, event-sourced attempts,
-answer changes, and submission. Phase 4 realtime overview/detail is covered by
-SignalR and snapshot tests. Phases 5–8 and GOAL flows A–F remain required.
+The foundation, identity, academics, LiveSession, assessment, learning,
+communication and reporting flows are covered by unit/integration tests. This
+includes durable local message delivery, tenant isolation, authenticated SignalR
+negotiation, session membership, lifecycle transitions, ephemeral presence,
+question-version snapshots, event-sourced attempts, grading/gradebook, progress,
+resources, essay validation, notifications and read-model reports. No test
+authentication bypass is exposed by the application.
+
+The repository deliberately stops at the backend/API boundary. WebRTC media is an
+external SFU concern, and AI essay review/RAG, payment, certificates and full
+microservices migration remain outside the current GOAL.
 
 ## Phase 3 learning activity
 
@@ -147,11 +154,23 @@ on-demand attempt detail endpoint or detail group. Switching detail subscription
 requires an explicit unsubscribe before the next snapshot and subscription;
 reconnecting clients can reload the versioned snapshot and subscribe again. Each
 projection rejects an older per-attempt version and the overview response reports
-the latest version for stale-client detection.
+the latest version for stale-client detection. The overview projection also maintains
+per-question answered/current counts for a lightweight question-progress heatmap.
 
-Review findings to resolve within their owning slices: snapshot/subscription gap
-recovery; immutable essay submission membership; validation bound to file/topic/policy
-versions at final submission.
+Help requests use a durable `HelpRequest` lifecycle
+(`Requested → Acknowledged → Resolved`) alongside the realtime attempt flag, so
+queue reads do not depend on projection timing and can report basic wait duration.
+
+## Assessment, learning and reporting slices
+
+Assessment owns grading, grade-item weights, published-result visibility, essay
+topic/group/report validation and tenant-owned file metadata. Binary report files
+remain in Object Storage and are returned through authorized signed read URLs.
+
+Learning owns activity/lesson progress and resource metadata. Communication owns
+announcements and notifications; notification and reporting delivery are best-effort
+and do not block answer or submission writes. Reporting owns class and student
+read-model snapshots built from durable tenant-scoped documents.
 
 ## Implementation references
 

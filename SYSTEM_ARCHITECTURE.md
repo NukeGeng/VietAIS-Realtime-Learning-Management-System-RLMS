@@ -190,7 +190,13 @@ Nếu mất connection, client có thể reload snapshot hiện tại rồi subs
 The Assessment projection stores the exact post-transition state before sending
 these deltas and ignores an older version for an attempt. Overview delivery and
 detail delivery are isolated best-effort operations; an error in one does not stop
-the other.
+the other. Overview responses also carry per-question answered/current counts for a
+lightweight heatmap; answer values remain confined to the on-demand detail path.
+
+Help requests are durable tenant-scoped documents with the lifecycle
+`Requested → Acknowledged → Resolved`. The realtime attempt flag mirrors the current
+request, while the document preserves timestamps and basic wait duration for the
+teacher queue.
 
 ---
 
@@ -325,8 +331,10 @@ Source of truth cho:
 - Event Streams;
 - StudentActivity;
 - Submission;
-- Grade;
-- Learning Progress;
+- Grade, gradebook adjustments and publication state;
+- HelpRequest lifecycle;
+- Learning progress and resource metadata;
+- Essay topic/submission/validation metadata and reporting snapshots;
 - Read Models.
 
 Event-sourced `StudentActivity` streams use Marten conjoined tenancy. The inline
@@ -372,20 +380,22 @@ tenant_id + document identity / unique index
 ```
 
 Organization registry và bootstrap state nằm ở control tenant. Course, class,
-enrollment, schedule, LiveSession, event stream và projection thuộc tenant của
-request. Business key local to organization phải có unique semantics tương đương
-`(tenant_id, business_key)`.
+enrollment, schedule, LiveSession, event stream, essay/file metadata và projection
+thuộc tenant của request. Business key local to organization phải có unique semantics
+tương đương `(tenant_id, business_key)`.
 
-Redis và realtime group cũng phải dùng tenant-scoped key. Object Storage file phải
-có tenant ownership trong metadata, object key và signed access khi module file
-được triển khai.
+Redis và realtime group cũng phải dùng tenant-scoped key. Object Storage file có
+tenant ownership trong metadata và object key; file endpoints chỉ trả signed access
+URL sau khi backend kiểm tra quyền và tổ chức.
 
 Database-per-tenant cho Hosted Enterprise hoặc On-Premise là placement strategy ở
 Infrastructure, chưa triển khai provisioning/orchestration trong GOAL hiện tại.
 Business module không được branch theo commercial plan hoặc database placement.
 
 Join/leave chỉ đăng ký Redis presence rồi phát message nhỏ có tenant context để
-attendance handler cập nhật `AttendanceRecord` bất đồng bộ. Khi kết thúc phiên,
+attendance handler cập nhật `AttendanceRecord` bất đồng bộ. Một student có thể giữ
+đồng thời HTTP và nhiều SignalR connection; attendance lưu các connection ID đang
+mở để một disconnect không đóng segment còn được sử dụng. Khi kết thúc phiên,
 handler đóng segment còn mở và tạo bản ghi vắng cho student chưa từng join. Chat
 ghi durable message trước khi broadcast; SignalR delivery có thể thất bại mà không
 làm mất lịch sử chat hoặc ảnh hưởng media/answer/submit.

@@ -185,7 +185,8 @@
         "type": "Project",
         "dependencies": {
           "LearningPlatform.Identity": "[1.0.0, )",
-          "Marten": "[9.32.0, )"
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
         }
       },
       "learningplatform.identity": {

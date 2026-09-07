@@ -846,7 +846,8 @@
         "type": "Project",
         "dependencies": {
           "LearningPlatform.Identity": "[1.0.0, )",
-          "Marten": "[9.32.0, )"
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
         }
       },
       "learningplatform.api": {
@@ -857,7 +858,8 @@
           "LearningPlatform.Classroom": "[1.0.0, )",
           "LearningPlatform.Communication": "[1.0.0, )",
           "LearningPlatform.Identity": "[1.0.0, )",
-          "LearningPlatform.Infrastructure": "[1.0.0, )"
+          "LearningPlatform.Infrastructure": "[1.0.0, )",
+          "LearningPlatform.Reporting": "[1.0.0, )"
         }
       },
       "learningplatform.assessment": {
@@ -866,6 +868,7 @@
           "LearningPlatform.Academics": "[1.0.0, )",
           "LearningPlatform.Classroom": "[1.0.0, )",
           "LearningPlatform.Identity": "[1.0.0, )",
+          "LearningPlatform.Learning": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "WolverineFx": "[6.33.0, )"
         }
@@ -886,7 +889,8 @@
           "LearningPlatform.Academics": "[1.0.0, )",
           "LearningPlatform.Classroom": "[1.0.0, )",
           "LearningPlatform.Identity": "[1.0.0, )",
-          "Marten": "[9.32.0, )"
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
         }
       },
       "learningplatform.identity": {
@@ -905,10 +909,34 @@
           "LearningPlatform.Classroom": "[1.0.0, )",
           "LearningPlatform.Communication": "[1.0.0, )",
           "LearningPlatform.Identity": "[1.0.0, )",
+          "LearningPlatform.Learning": "[1.0.0, )",
+          "LearningPlatform.Reporting": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "StackExchange.Redis": "[3.1.31, )",
           "WolverineFx.Marten": "[6.33.0, )",
           "WolverineFx.RuntimeCompilation": "[6.33.0, )"
+        }
+      },
+      "learningplatform.learning": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Classroom": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
+        }
+      },
+      "learningplatform.reporting": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Assessment": "[1.0.0, )",
+          "LearningPlatform.Classroom": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "LearningPlatform.Learning": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
         }
       },
       "AWSSDK.S3": {

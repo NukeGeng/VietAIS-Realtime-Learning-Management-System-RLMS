@@ -50,6 +50,10 @@ public sealed class AttendanceRecord
     // This is durable so an unexpected disconnect can be finalized when the
     // session ends. It is an implementation detail, not a presence source of truth.
     public DateTimeOffset? CurrentJoinedAt { get; set; }
+    // A student may have both an HTTP join and one or more SignalR connections.
+    // Keep the connection identities with the open attendance segment so one
+    // connection disappearing cannot close the segment for the others.
+    public string[] ActiveConnectionIds { get; set; } = [];
     public DateTimeOffset UpdatedAt { get; set; }
 }
 

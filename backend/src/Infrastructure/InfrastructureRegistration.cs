@@ -7,10 +7,13 @@ using LearningPlatform.Infrastructure.Persistence;
 using LearningPlatform.Infrastructure.Storage;
 using LearningPlatform.Academics.Domain;
 using LearningPlatform.Assessment.Domain;
+using LearningPlatform.Assessment.Storage;
 using LearningPlatform.Classroom.Domain;
 using LearningPlatform.Communication.Domain;
 using LearningPlatform.Identity.Domain;
 using LearningPlatform.Learning.Domain;
+using LearningPlatform.Learning.Storage;
+using LearningPlatform.Reporting.Domain;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -67,16 +70,31 @@ public static class InfrastructureRegistration
             options.Schema.For<LiveSession>();
             options.Schema.For<AttendanceRecord>();
             options.Schema.For<RaiseHand>();
+            options.Schema.For<HelpRequest>();
             options.Schema.For<ChatMessage>();
+            options.Schema.For<Announcement>();
+            options.Schema.For<Notification>();
             options.Schema.For<QuestionBankItem>();
             options.Schema.For<QuestionVersion>();
             options.Schema.For<AssessmentActivity>();
             options.Schema.For<Submission>();
             options.Schema.For<GradeItem>();
             options.Schema.For<GradeEntry>();
+            options.Schema.For<GradeAdjustment>();
             options.Schema.For<AssessmentRubric>();
+            options.Schema.For<EssayAssignment>();
+            options.Schema.For<EssayGroup>();
+            options.Schema.For<EssayTopic>();
+            options.Schema.For<EssayTopicChangeRequest>();
+            options.Schema.For<FileAsset>();
+            options.Schema.For<EssaySubmission>();
+            options.Schema.For<ReportValidationResult>();
             options.Schema.For<StudentProgressRecord>();
             options.Schema.For<LearningHistoryEntry>();
+            options.Schema.For<StudentLessonProgressRecord>();
+            options.Schema.For<LearningResource>();
+            options.Schema.For<ClassReportSnapshot>();
+            options.Schema.For<StudentReportSnapshot>();
             options.Schema.For<ClassOverviewView>();
             options.Schema.For<StudentAttemptDetailView>();
             options.Projections.Snapshot<StudentActivity>(JasperFx.Events.Projections.SnapshotLifecycle.Inline);
@@ -119,6 +137,8 @@ public static class InfrastructureRegistration
                     Timeout = TimeSpan.FromSeconds(5)
                 });
         });
+        builder.Services.AddSingleton<IFileStorage, S3FileStorage>();
+        builder.Services.AddSingleton<ILearningResourceStorage, S3FileStorage>();
         builder.Services.AddHealthChecks()
             .AddCheck<PostgresHealthCheck>("postgres", tags: ["core"], timeout: TimeSpan.FromSeconds(5))
             .AddCheck<RedisHealthCheck>("redis", tags: ["peripheral"], timeout: TimeSpan.FromSeconds(5))

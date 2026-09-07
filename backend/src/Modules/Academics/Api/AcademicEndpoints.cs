@@ -1,6 +1,7 @@
 using JasperFx;
 using LearningPlatform.Academics.Domain;
 using LearningPlatform.Identity.Authorization;
+using LearningPlatform.Identity.Domain;
 using Marten;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -22,20 +23,71 @@ public static class AcademicEndpoints
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
         endpoints.MapPost("/api/academics/courses/{courseId:guid}/publish", PublishCourseAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
+        endpoints.MapPost("/api/academics/courses/{courseId:guid}/archive", ArchiveCourseAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
         endpoints.MapPost("/api/academics/courses/{courseId:guid}/modules", CreateModuleAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
         endpoints.MapPost("/api/academics/courses/{courseId:guid}/modules/{moduleId:guid}/lessons",
                 CreateLessonAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
+        endpoints.MapPost("/api/academics/courses/{courseId:guid}/modules/{moduleId:guid}/publish",
+                PublishModuleAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
+        endpoints.MapPost("/api/academics/courses/{courseId:guid}/modules/{moduleId:guid}/lessons/{lessonId:guid}/publish",
+                PublishLessonAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
     }
 
     private static async Task<IResult> ListCoursesAsync(
-        int? page, int? pageSize, IQuerySession session, CancellationToken cancellationToken)
+        int? page, int? pageSize, HttpContext context, IQuerySession session,
+        CancellationToken cancellationToken)
     {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
         var safePage = Math.Max(page ?? 1, 1);
         var safePageSize = Math.Clamp(pageSize ?? 50, 1, 100);
-        var courses = await session.Query<Course>()
-            .OrderBy(course => course.Title)
+        IQueryable<Course> query = session.Query<Course>();
+        if (actor!.Permissions.Contains(PermissionCatalog.ManageOrganizations,
+                StringComparer.Ordinal))
+        {
+            // Organization administrators can see every course in their tenant.
+        }
+        else if (actor.Permissions.Contains(PermissionCatalog.ManageCourses,
+                     StringComparer.Ordinal))
+        {
+            query = query.Where(course => course.Status == CourseStatus.Published ||
+                course.CreatedBy == actor.UserId);
+        }
+        else
+        {
+            var classIds = await session.Query<Enrollment>()
+                .Where(enrollment => enrollment.StudentId == actor.UserId &&
+                    enrollment.Status == EnrollmentStatus.Active)
+                .Select(enrollment => enrollment.LearningClassId)
+                .ToListAsync(cancellationToken);
+            if (classIds.Count == 0)
+            {
+                return Results.Ok(Array.Empty<CourseResponse>());
+            }
+
+            var courseIds = await session.Query<LearningClass>()
+                .Where(learningClass => classIds.Contains(learningClass.Id))
+                .Select(learningClass => learningClass.CourseId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+            if (courseIds.Count == 0)
+            {
+                return Results.Ok(Array.Empty<CourseResponse>());
+            }
+
+            query = query.Where(course => courseIds.Contains(course.Id) &&
+                course.Status == CourseStatus.Published);
+        }
+
+        var courses = await query.OrderBy(course => course.Title)
             .Skip((safePage - 1) * safePageSize)
             .Take(safePageSize)
             .ToListAsync(cancellationToken);
@@ -43,12 +95,39 @@ public static class AcademicEndpoints
     }
 
     private static async Task<IResult> GetCourseAsync(
-        Guid courseId, IQuerySession session, CancellationToken cancellationToken)
+        Guid courseId, HttpContext context, IQuerySession session, CancellationToken cancellationToken)
     {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
         var course = await session.LoadAsync<Course>(courseId, cancellationToken);
         if (course is null)
         {
             return Results.NotFound();
+        }
+
+        var canManage = AcademicAuthorization.CanManageCourse(actor!, course);
+        var canReadPublished = actor!.Permissions.Contains(PermissionCatalog.ManageCourses,
+            StringComparer.Ordinal) && course.Status == CourseStatus.Published;
+        var canRead = canManage || canReadPublished;
+        if (!canRead)
+        {
+            var classIds = await session.Query<LearningClass>()
+                .Where(learningClass => learningClass.CourseId == courseId)
+                .Select(learningClass => learningClass.Id)
+                .ToListAsync(cancellationToken);
+            canRead = course.Status == CourseStatus.Published && classIds.Count > 0 &&
+                await session.Query<Enrollment>().AnyAsync(enrollment =>
+                    classIds.Contains(enrollment.LearningClassId) &&
+                    enrollment.StudentId == actor.UserId &&
+                    enrollment.Status == EnrollmentStatus.Active, cancellationToken);
+        }
+
+        if (!canRead)
+        {
+            return Results.Forbid();
         }
 
         var modules = await session.Query<CourseModule>()
@@ -59,6 +138,11 @@ public static class AcademicEndpoints
             .Where(lesson => lesson.CourseId == courseId)
             .OrderBy(lesson => lesson.Order)
             .ToListAsync(cancellationToken);
+        if (!canManage)
+        {
+            modules = modules.Where(module => module.Status == AcademicContentStatus.Published).ToList();
+            lessons = lessons.Where(lesson => lesson.Status == AcademicContentStatus.Published).ToList();
+        }
         return Results.Ok(CourseDetailResponse.From(course, modules, lessons));
     }
 
@@ -108,13 +192,29 @@ public static class AcademicEndpoints
     private static async Task<IResult> UpdateCourseAsync(
         Guid courseId,
         UpdateCourseRequest request,
+        HttpContext context,
         IDocumentSession session,
         CancellationToken cancellationToken)
     {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
         var course = await session.LoadAsync<Course>(courseId, cancellationToken);
         if (course is null)
         {
             return Results.NotFound();
+        }
+
+        if (!AcademicAuthorization.CanManageCourse(actor!, course))
+        {
+            return Results.Forbid();
+        }
+
+        if (course.Status == CourseStatus.Archived)
+        {
+            return Results.Conflict(new { error = "An archived course cannot be changed." });
         }
 
         try
@@ -138,12 +238,23 @@ public static class AcademicEndpoints
     }
 
     private static async Task<IResult> PublishCourseAsync(
-        Guid courseId, IDocumentSession session, CancellationToken cancellationToken)
+        Guid courseId, HttpContext context, IDocumentSession session,
+        CancellationToken cancellationToken)
     {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
         var course = await session.LoadAsync<Course>(courseId, cancellationToken);
         if (course is null)
         {
             return Results.NotFound();
+        }
+
+        if (!AcademicAuthorization.CanManageCourse(actor!, course))
+        {
+            return Results.Forbid();
         }
 
         if (course.Status == CourseStatus.Archived)
@@ -153,14 +264,144 @@ public static class AcademicEndpoints
 
         course.Status = CourseStatus.Published;
         course.UpdatedAt = DateTimeOffset.UtcNow;
+        var modules = await session.Query<CourseModule>()
+            .Where(module => module.CourseId == courseId && module.Status != AcademicContentStatus.Archived)
+            .ToListAsync(cancellationToken);
+        var moduleIds = modules.Select(module => module.Id).ToArray();
+        var lessons = await session.Query<Lesson>()
+            .Where(lesson => lesson.CourseId == courseId && lesson.Status != AcademicContentStatus.Archived &&
+                moduleIds.Contains(lesson.CourseModuleId))
+            .ToListAsync(cancellationToken);
+        foreach (var module in modules)
+        {
+            module.Status = AcademicContentStatus.Published;
+            session.Update(module);
+        }
+
+        foreach (var lesson in lessons)
+        {
+            lesson.Status = AcademicContentStatus.Published;
+            session.Update(lesson);
+        }
+
         session.Update(course);
         await session.SaveChangesAsync(cancellationToken);
         return Results.Ok(CourseResponse.From(course));
     }
 
+    private static Task<IResult> ArchiveCourseAsync(
+        Guid courseId, HttpContext context, IDocumentSession session,
+        CancellationToken cancellationToken) =>
+        ChangeCourseStatusAsync(courseId, CourseStatus.Archived, context, session, cancellationToken);
+
+    private static async Task<IResult> ChangeCourseStatusAsync(
+        Guid courseId, CourseStatus target, HttpContext context, IDocumentSession session,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var course = await session.LoadAsync<Course>(courseId, cancellationToken);
+        if (course is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!AcademicAuthorization.CanManageCourse(actor!, course))
+        {
+            return Results.Forbid();
+        }
+
+        if (course.Status == CourseStatus.Archived)
+        {
+            return Results.Conflict(new { error = "The course is already archived." });
+        }
+
+        course.Status = target;
+        course.UpdatedAt = DateTimeOffset.UtcNow;
+        session.Update(course);
+        await session.SaveChangesAsync(cancellationToken);
+        return Results.Ok(CourseResponse.From(course));
+    }
+
+    private static Task<IResult> PublishModuleAsync(Guid courseId, Guid moduleId,
+        HttpContext context, IDocumentSession session, CancellationToken cancellationToken) =>
+        ChangeContentStatusAsync(courseId, moduleId, null, AcademicContentStatus.Published,
+            context, session, cancellationToken);
+
+    private static Task<IResult> PublishLessonAsync(Guid courseId, Guid moduleId, Guid lessonId,
+        HttpContext context, IDocumentSession session, CancellationToken cancellationToken) =>
+        ChangeContentStatusAsync(courseId, moduleId, lessonId, AcademicContentStatus.Published,
+            context, session, cancellationToken);
+
+    private static async Task<IResult> ChangeContentStatusAsync(Guid courseId, Guid moduleId,
+        Guid? lessonId, AcademicContentStatus target, HttpContext context, IDocumentSession session,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out _))
+        {
+            return Results.Forbid();
+        }
+
+        var course = await session.LoadAsync<Course>(courseId, cancellationToken);
+        var module = await session.LoadAsync<CourseModule>(moduleId, cancellationToken);
+        if (course is null || module is null || module.CourseId != courseId)
+        {
+            return Results.NotFound();
+        }
+
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor) ||
+            !AcademicAuthorization.CanManageCourse(actor!, course))
+        {
+            return Results.Forbid();
+        }
+
+        if (course.Status == CourseStatus.Archived)
+        {
+            return Results.Conflict(new { error = "An archived course cannot be changed." });
+        }
+
+        if (lessonId is null)
+        {
+            if (module.Status == AcademicContentStatus.Archived)
+            {
+                return Results.Conflict(new { error = "An archived module cannot be published." });
+            }
+
+            module.Status = target;
+            session.Update(module);
+            await session.SaveChangesAsync(cancellationToken);
+            return Results.Ok(ModuleResponse.From(module));
+        }
+
+        var lesson = await session.LoadAsync<Lesson>(lessonId.Value, cancellationToken);
+        if (lesson is null || lesson.CourseId != courseId || lesson.CourseModuleId != moduleId)
+        {
+            return Results.NotFound();
+        }
+
+        if (lesson.Status == AcademicContentStatus.Archived)
+        {
+            return Results.Conflict(new { error = "An archived lesson cannot be published." });
+        }
+
+        if (target == AcademicContentStatus.Published && module.Status != AcademicContentStatus.Published)
+        {
+            return Results.Conflict(new { error = "Publish the parent module before publishing this lesson." });
+        }
+
+        lesson.Status = target;
+        session.Update(lesson);
+        await session.SaveChangesAsync(cancellationToken);
+        return Results.Ok(LessonResponse.From(lesson));
+    }
+
     private static async Task<IResult> CreateModuleAsync(
         Guid courseId,
         CreateModuleRequest request,
+        HttpContext context,
         IDocumentSession session,
         CancellationToken cancellationToken)
     {
@@ -168,6 +409,17 @@ public static class AcademicEndpoints
         if (course is null)
         {
             return Results.NotFound();
+        }
+
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor) ||
+            !AcademicAuthorization.CanManageCourse(actor!, course))
+        {
+            return Results.Forbid();
+        }
+
+        if (course.Status == CourseStatus.Archived)
+        {
+            return Results.Conflict(new { error = "Archived course content cannot be changed." });
         }
 
         try
@@ -205,6 +457,7 @@ public static class AcademicEndpoints
         Guid courseId,
         Guid moduleId,
         CreateLessonRequest request,
+        HttpContext context,
         IDocumentSession session,
         CancellationToken cancellationToken)
     {
@@ -213,6 +466,17 @@ public static class AcademicEndpoints
         if (course is null || module is null || module.CourseId != courseId)
         {
             return Results.NotFound();
+        }
+
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor) ||
+            !AcademicAuthorization.CanManageCourse(actor!, course))
+        {
+            return Results.Forbid();
+        }
+
+        if (course.Status == CourseStatus.Archived || module.Status == AcademicContentStatus.Archived)
+        {
+            return Results.Conflict(new { error = "Archived course content cannot be changed." });
         }
 
         try
@@ -249,6 +513,14 @@ public static class AcademicEndpoints
             return Results.BadRequest(new { error = exception.Message });
         }
     }
+}
+
+internal static class AcademicAuthorization
+{
+    public static bool CanManageCourse(AuthenticatedActor actor, Course course) =>
+        actor.OrganizationId == course.OrganizationId &&
+        (actor.Permissions.Contains(PermissionCatalog.ManageOrganizations, StringComparer.Ordinal) ||
+         course.CreatedBy == actor.UserId);
 }
 
 public sealed record CreateCourseRequest(string Code, string Title, string? Description);

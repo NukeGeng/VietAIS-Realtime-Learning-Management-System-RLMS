@@ -21,6 +21,11 @@ public static class ActivityChangeTypes
     public const string AnswerSubmitted = "answer-submitted";
     public const string AnswerChanged = "answer-changed";
     public const string Submitted = "submitted";
+    public const string Idle = "idle";
+    public const string Resumed = "resumed";
+    public const string HelpRequested = "help-requested";
+    public const string HelpAcknowledged = "help-acknowledged";
+    public const string HelpResolved = "help-resolved";
 }
 
 /// <summary>
@@ -35,22 +40,28 @@ public sealed record StudentActivityRealtimeState(Guid AttemptId, Guid Organizat
     Guid ActivityId, Guid LearningClassId, Guid? LiveSessionId, Guid? CurrentQuestionId,
     StudentActivityStatus Status, Dictionary<Guid, string> Answers, int AnsweredCount,
     DateTimeOffset StartedAt, DateTimeOffset LastActivityAt, DateTimeOffset? SubmittedAt, long Version,
-    int AttemptNumber = 1)
+    int AttemptNumber = 1, bool HelpRequested = false,
+    DateTimeOffset? HelpRequestedAt = null, DateTimeOffset? HelpAcknowledgedAt = null)
 {
     public static StudentActivityRealtimeState From(StudentActivity activity) => new(activity.Id,
         activity.OrganizationId, activity.StudentId, activity.ActivityId, activity.LearningClassId,
         activity.LiveSessionId, activity.CurrentQuestionId, activity.Status,
         new Dictionary<Guid, string>(activity.Answers), activity.AnsweredCount, activity.StartedAt,
-        activity.LastActivityAt, activity.SubmittedAt, activity.Version, activity.AttemptNumber);
+        activity.LastActivityAt, activity.SubmittedAt, activity.Version, activity.AttemptNumber,
+        activity.HelpRequested, activity.HelpRequestedAt, activity.HelpAcknowledgedAt);
 }
 
 public sealed record ActivityOverviewDelta(Guid StudentId, Guid AttemptId, Guid? CurrentQuestionId,
     int AnsweredCount, int TotalQuestions, decimal Progress, StudentActivityStatus Status,
-    DateTimeOffset LastActivityAt, long Version);
+    DateTimeOffset LastActivityAt, long Version, int AttemptNumber = 1,
+    ActivityQuestionProgressDelta[]? QuestionProgress = null);
+
+public sealed record ActivityQuestionProgressDelta(Guid QuestionId, int AnsweredStudentCount,
+    int CurrentStudentCount);
 
 public sealed record ActivityDetailDelta(Guid AttemptId, long Version, string ChangeType,
     Guid? QuestionId, string? AnswerValue, Guid? CurrentQuestionId, int AnsweredCount,
-    StudentActivityStatus Status, DateTimeOffset LastActivityAt);
+    StudentActivityStatus Status, DateTimeOffset LastActivityAt, bool HelpRequested = false);
 
 public interface IActivityRealtimeNotifier
 {

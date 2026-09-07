@@ -1,4 +1,5 @@
 using LearningPlatform.Assessment.Domain;
+using LearningPlatform.Identity.Domain;
 using Marten;
 using Microsoft.Extensions.Logging;
 using Wolverine;
@@ -78,6 +79,40 @@ public static class GradePublicationPublisher
         {
             logger.LogWarning(exception,
                 "Unable to enqueue learning progress update for grade entry {GradeEntryId}.",
+                message.GradeEntryId);
+        }
+
+        try
+        {
+            await messageBus.PublishAsync(new GradeEntryPublishedForReporting(message.OrganizationId,
+                message.LearningClassId, message.StudentId, message.GradeEntryId, message.PublishedAt));
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception,
+                "Unable to enqueue reporting update for grade entry {GradeEntryId}.",
+                message.GradeEntryId);
+        }
+
+        var notification = new NotificationRequested(Guid.NewGuid(), message.OrganizationId,
+            message.StudentId, "result-published", $"Result published: {message.ActivityTitle}",
+            $"Your result is {message.Score:0.##} / {message.MaxScore:0.##}.",
+            message.GradeEntryId, message.PublishedAt);
+        try
+        {
+            if (message.ResultsReleaseAt is { } releaseAt && releaseAt > DateTimeOffset.UtcNow)
+            {
+                await messageBus.ScheduleAsync(notification, releaseAt);
+            }
+            else
+            {
+                await messageBus.PublishAsync(notification);
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception,
+                "Unable to enqueue result notification for grade entry {GradeEntryId}.",
                 message.GradeEntryId);
         }
     }

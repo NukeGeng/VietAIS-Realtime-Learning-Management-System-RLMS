@@ -388,8 +388,10 @@ Không dùng Redis làm source of truth cho attendance cuối cùng.
 
 `AttendanceRecord` là một document tenant-scoped cho mỗi cặp
 `LiveSessionId + StudentId`. `CurrentJoinedAt` chỉ giữ segment đang mở để handler
-đóng segment khi nhận leave hoặc khi phiên kết thúc; nó không thay thế presence.
-Join/leave được xử lý bất đồng bộ và phải idempotent.
+đóng segment khi nhận leave hoặc khi phiên kết thúc; `ActiveConnectionIds` giữ
+những HTTP/SignalR connection đang tham gia segment. Một disconnect chỉ đóng
+segment khi connection cuối cùng rời đi; nó không thay thế presence. Join/leave
+được xử lý bất đồng bộ và phải idempotent.
 
 ---
 
@@ -709,6 +711,11 @@ GradeEntry
 
 Auto grading chỉ với deterministic objective question.
 
+`GradeAdjustment` là audit document cho mỗi thay đổi điểm đã ghi nhận. Adjustment
+giữ `GradeEntryId`, điểm cũ/mới, người điều chỉnh, lý do, thời điểm và phiên bản
+điểm. Entry được đưa về Draft sau khi điều chỉnh và phải publish lại trước khi
+student có thể thấy kết quả mới.
+
 ---
 
 # 19. Gradebook
@@ -753,8 +760,11 @@ HelpRequest là business state, không chỉ notification.
 HelpRequest
 {
     Id
+    OrganizationId
     LiveSessionId
     StudentActivityId
+    ActivityId
+    LearningClassId
     StudentId
     QuestionId?
     Status
@@ -764,6 +774,10 @@ HelpRequest
     HandledBy?
 }
 ```
+
+`HelpRequest` là document tenant-scoped. Hàng chờ đọc các request chưa Resolved;
+`WaitDurationSeconds` được tính từ `RequestedAt` đến `AcknowledgedAt`, hoặc đến
+`ResolvedAt`/thời điểm đọc nếu request còn chờ.
 
 Lifecycle:
 
@@ -1229,13 +1243,17 @@ Không nhét:
 | LiveSession | PostgreSQL/Marten | Document / event-backed nếu cần |
 | AttendanceRecord | PostgreSQL/Marten | Durable document/projection |
 | RaiseHand | PostgreSQL/Marten | Durable state document |
+| HelpRequest | PostgreSQL/Marten | Durable lifecycle document |
 | StudentActivity | Marten Event Store | Event-sourced Aggregate |
 | AssessmentActivity | PostgreSQL/Marten | Document |
 | QuestionBankItem/Version | PostgreSQL/Marten | Documents |
 | Submission | PostgreSQL/Marten | Durable document |
 | GradeItem/GradeEntry | PostgreSQL/Marten | Documents |
+| GradeAdjustment | PostgreSQL/Marten | Audit document |
 | Essay* | PostgreSQL/Marten | Documents + domain events khi cần |
-| LearningProgress | PostgreSQL/Marten | Projection/document |
+| StudentProgressRecord/StudentLessonProgressRecord | PostgreSQL/Marten | Projection/documents |
+| LearningResource | PostgreSQL/Marten | Metadata document |
+| ClassReportSnapshot/StudentReportSnapshot | PostgreSQL/Marten | Reporting projections |
 | ClassOverviewView | PostgreSQL/Marten | Projection |
 | StudentAttemptDetailView | PostgreSQL/Marten | Projection |
 | Presence | Redis | Ephemeral |

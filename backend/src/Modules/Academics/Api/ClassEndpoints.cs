@@ -6,6 +6,8 @@ using Marten;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
+using Wolverine;
 
 namespace LearningPlatform.Academics.Api;
 
@@ -33,6 +35,8 @@ public static class ClassEndpoints
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageEnrollments);
         endpoints.MapGet("/api/academics/classes/{classId:guid}/schedules", ListSchedulesAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ReadScheduling);
+        endpoints.MapGet("/api/academics/schedules/me", ListMySchedulesAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ReadScheduling);
         endpoints.MapPost("/api/academics/classes/{classId:guid}/schedules", CreateScheduleAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageScheduling);
         endpoints.MapPost("/api/academics/classes/{classId:guid}/schedules/{scheduleId:guid}/reschedule",
@@ -41,6 +45,8 @@ public static class ClassEndpoints
         endpoints.MapPost("/api/academics/classes/{classId:guid}/schedules/{scheduleId:guid}/cancel",
                 CancelScheduleAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageScheduling);
+        endpoints.MapPost("/api/academics/classes/{classId:guid}/status", ChangeClassStatusAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageClasses);
     }
 
     private static async Task<IResult> ListClassesAsync(
@@ -52,7 +58,30 @@ public static class ClassEndpoints
         }
 
         IQueryable<LearningClass> query = session.Query<LearningClass>();
-        if (!actor!.Permissions.Contains(PermissionCatalog.ManageClasses, StringComparer.Ordinal))
+        if (actor!.Permissions.Contains(PermissionCatalog.ManageOrganizations, StringComparer.Ordinal))
+        {
+            // Organization administrators can see every class in their tenant.
+        }
+        else if (actor.Permissions.Contains(PermissionCatalog.ManageClasses, StringComparer.Ordinal))
+        {
+            var assignedClassIds = await session.Query<ClassTeacherAssignment>()
+                .Where(assignment => assignment.TeacherId == actor.UserId &&
+                    assignment.Status == TeacherAssignmentStatus.Active)
+                .Select(assignment => assignment.LearningClassId)
+                .ToListAsync(cancellationToken);
+            var createdClassIds = await session.Query<LearningClass>()
+                .Where(learningClass => learningClass.CreatedBy == actor.UserId)
+                .Select(learningClass => learningClass.Id)
+                .ToListAsync(cancellationToken);
+            var classIds = assignedClassIds.Concat(createdClassIds).Distinct().ToList();
+            if (classIds.Count == 0)
+            {
+                return Results.Ok(Array.Empty<ClassResponse>());
+            }
+
+            query = query.Where(learningClass => classIds.Contains(learningClass.Id));
+        }
+        else
         {
             var classIds = await session.Query<Enrollment>()
                 .Where(enrollment => enrollment.StudentId == actor.UserId &&
@@ -129,6 +158,7 @@ public static class ClassEndpoints
                 CourseId = request.CourseId,
                 Code = code,
                 Name = name,
+                CreatedBy = actor.UserId,
                 Status = LearningClassStatus.Preparing,
                 StartDate = dates.Start,
                 EndDate = dates.End,
@@ -167,6 +197,16 @@ public static class ClassEndpoints
         if (learningClass is null)
         {
             return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(context, session, learningClass, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        if (learningClass.Status is LearningClassStatus.Completed or LearningClassStatus.Archived)
+        {
+            return Results.Conflict(new { error = "A completed or archived class cannot change its teachers." });
         }
 
         var teacher = await identity.FindActiveMemberAsync(actor!.OrganizationId, request.TeacherId,
@@ -214,9 +254,26 @@ public static class ClassEndpoints
     private static async Task<IResult> RemoveTeacherAsync(
         Guid classId,
         Guid teacherId,
+        HttpContext context,
         IDocumentSession session,
         CancellationToken cancellationToken)
     {
+        var learningClass = await session.LoadAsync<LearningClass>(classId, cancellationToken);
+        if (learningClass is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(context, session, learningClass, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        if (learningClass.Status is LearningClassStatus.Completed or LearningClassStatus.Archived)
+        {
+            return Results.Conflict(new { error = "A completed or archived class cannot change its teachers." });
+        }
+
         var assignment = await session.LoadAsync<ClassTeacherAssignment>(
             AcademicConstants.TeacherAssignmentId(classId, teacherId), cancellationToken);
         if (assignment is null || assignment.Status == TeacherAssignmentStatus.Removed)
@@ -248,10 +305,19 @@ public static class ClassEndpoints
             return Results.Forbid();
         }
 
-        var query = session.Query<Enrollment>().Where(enrollment => enrollment.LearningClassId == classId);
-        if (!actor!.Permissions.Contains(PermissionCatalog.ManageEnrollments, StringComparer.Ordinal))
+        var canManageClass = await CanManageClassAsync(context, session, learningClass,
+            cancellationToken);
+        if (!canManageClass && !await session.Query<Enrollment>().AnyAsync(enrollment =>
+                enrollment.LearningClassId == classId && enrollment.StudentId == actor!.UserId &&
+                enrollment.Status == EnrollmentStatus.Active, cancellationToken))
         {
-            query = query.Where(enrollment => enrollment.StudentId == actor.UserId);
+            return Results.Forbid();
+        }
+
+        var query = session.Query<Enrollment>().Where(enrollment => enrollment.LearningClassId == classId);
+        if (!canManageClass)
+        {
+            query = query.Where(enrollment => enrollment.StudentId == actor!.UserId);
         }
 
         var enrollments = await query.OrderBy(enrollment => enrollment.EnrolledAt)
@@ -276,6 +342,16 @@ public static class ClassEndpoints
         if (learningClass is null)
         {
             return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(context, session, learningClass, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        if (learningClass.Status is LearningClassStatus.Completed or LearningClassStatus.Archived)
+        {
+            return Results.Conflict(new { error = "A completed or archived class cannot change enrollment." });
         }
 
         if (await identity.FindActiveMemberAsync(actor!.OrganizationId, request.StudentId,
@@ -328,9 +404,26 @@ public static class ClassEndpoints
     private static async Task<IResult> DropEnrollmentAsync(
         Guid classId,
         Guid studentId,
+        HttpContext context,
         IDocumentSession session,
         CancellationToken cancellationToken)
     {
+        var learningClass = await session.LoadAsync<LearningClass>(classId, cancellationToken);
+        if (learningClass is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(context, session, learningClass, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        if (learningClass.Status is LearningClassStatus.Completed or LearningClassStatus.Archived)
+        {
+            return Results.Conflict(new { error = "A completed or archived class cannot change enrollment." });
+        }
+
         var enrollment = await session.LoadAsync<Enrollment>(
             AcademicConstants.EnrollmentId(classId, studentId), cancellationToken);
         if (enrollment is null || enrollment.Status != EnrollmentStatus.Active)
@@ -369,9 +462,73 @@ public static class ClassEndpoints
         return Results.Ok(schedules.Select(ScheduleResponse.From));
     }
 
-    private static async Task<IResult> CreateScheduleAsync(
+    private static async Task<IResult> ListMySchedulesAsync(
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        HttpContext context,
+        IQuerySession session,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        IQueryable<ClassSchedule> query = session.Query<ClassSchedule>();
+        if (!actor!.Permissions.Contains(PermissionCatalog.ManageOrganizations,
+                StringComparer.Ordinal))
+        {
+            IReadOnlyList<Guid> classIds;
+            if (actor.Permissions.Contains(PermissionCatalog.ManageScheduling,
+                    StringComparer.Ordinal))
+            {
+                var assigned = await session.Query<ClassTeacherAssignment>()
+                    .Where(assignment => assignment.TeacherId == actor.UserId &&
+                        assignment.Status == TeacherAssignmentStatus.Active)
+                    .Select(assignment => assignment.LearningClassId)
+                    .ToListAsync(cancellationToken);
+                var created = await session.Query<LearningClass>()
+                    .Where(learningClass => learningClass.CreatedBy == actor.UserId)
+                    .Select(learningClass => learningClass.Id)
+                    .ToListAsync(cancellationToken);
+                classIds = assigned.Concat(created).Distinct().ToList();
+            }
+            else
+            {
+                classIds = await session.Query<Enrollment>()
+                    .Where(enrollment => enrollment.StudentId == actor.UserId &&
+                        enrollment.Status == EnrollmentStatus.Active)
+                    .Select(enrollment => enrollment.LearningClassId)
+                    .ToListAsync(cancellationToken);
+            }
+
+            if (classIds.Count == 0)
+            {
+                return Results.Ok(Array.Empty<ScheduleResponse>());
+            }
+
+            query = query.Where(schedule => classIds.Contains(schedule.LearningClassId));
+        }
+
+        if (from is { } start)
+        {
+            query = query.Where(schedule => schedule.EndsAt >= start);
+        }
+
+        if (to is { } end)
+        {
+            query = query.Where(schedule => schedule.StartsAt <= end);
+        }
+
+        var schedules = await query.OrderBy(schedule => schedule.StartsAt)
+            .Take(500)
+            .ToListAsync(cancellationToken);
+        return Results.Ok(schedules.Select(ScheduleResponse.From));
+    }
+
+    private static async Task<IResult> ChangeClassStatusAsync(
         Guid classId,
-        CreateScheduleRequest request,
+        ChangeClassStatusRequest request,
         HttpContext context,
         IDocumentSession session,
         CancellationToken cancellationToken)
@@ -385,6 +542,63 @@ public static class ClassEndpoints
         if (learningClass is null)
         {
             return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(context, session, learningClass, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        if (!CanChangeStatus(learningClass.Status, request.Status))
+        {
+            return Results.Conflict(new { error = "The class cannot make that state transition." });
+        }
+
+        learningClass.Status = request.Status;
+        learningClass.UpdatedAt = DateTimeOffset.UtcNow;
+        session.Update(learningClass);
+        await session.SaveChangesAsync(cancellationToken);
+        return Results.Ok(ClassResponse.From(learningClass));
+    }
+
+    private static bool CanChangeStatus(LearningClassStatus current, LearningClassStatus target) =>
+        (current, target) switch
+        {
+            (LearningClassStatus.Preparing, LearningClassStatus.Active or LearningClassStatus.Archived) => true,
+            (LearningClassStatus.Active, LearningClassStatus.Paused or LearningClassStatus.Completed) => true,
+            (LearningClassStatus.Paused, LearningClassStatus.Active or LearningClassStatus.Completed) => true,
+            (LearningClassStatus.Completed, LearningClassStatus.Archived) => true,
+            _ => false
+        };
+
+    private static async Task<IResult> CreateScheduleAsync(
+        Guid classId,
+        CreateScheduleRequest request,
+        HttpContext context,
+        IDocumentSession session,
+        IMessageBus messageBus,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var learningClass = await session.LoadAsync<LearningClass>(classId, cancellationToken);
+        if (learningClass is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(context, session, learningClass, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        if (learningClass.Status is LearningClassStatus.Completed or LearningClassStatus.Archived)
+        {
+            return Results.Conflict(new { error = "A completed or archived class cannot receive a new schedule." });
         }
 
         var assignment = await session.LoadAsync<ClassTeacherAssignment>(
@@ -412,6 +626,8 @@ public static class ClassEndpoints
             };
             session.Insert(schedule);
             await session.SaveChangesAsync(cancellationToken);
+            await PublishScheduleNotificationAsync(messageBus, loggerFactory, actor.OrganizationId,
+                classId, schedule, "schedule-created", "New class session", "A new class session has been scheduled.");
             return Results.Created($"/api/academics/classes/{classId:D}/schedules/{schedule.Id:D}",
                 ScheduleResponse.From(schedule));
         }
@@ -425,9 +641,28 @@ public static class ClassEndpoints
         Guid classId,
         Guid scheduleId,
         RescheduleRequest request,
+        HttpContext context,
         IDocumentSession session,
+        IMessageBus messageBus,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        var learningClass = await session.LoadAsync<LearningClass>(classId, cancellationToken);
+        if (learningClass is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(context, session, learningClass, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        if (learningClass.Status is LearningClassStatus.Completed or LearningClassStatus.Archived)
+        {
+            return Results.Conflict(new { error = "A completed or archived class cannot change its schedule." });
+        }
+
         var schedule = await session.LoadAsync<ClassSchedule>(scheduleId, cancellationToken);
         if (schedule is null || schedule.LearningClassId != classId)
         {
@@ -449,6 +684,9 @@ public static class ClassEndpoints
             schedule.UpdatedAt = DateTimeOffset.UtcNow;
             session.Update(schedule);
             await session.SaveChangesAsync(cancellationToken);
+            await PublishScheduleNotificationAsync(messageBus, loggerFactory, learningClass.OrganizationId,
+                classId, schedule, "schedule-rescheduled", "Class session changed",
+                "A class session has been rescheduled.");
             return Results.Ok(ScheduleResponse.From(schedule));
         }
         catch (AcademicValidationException exception)
@@ -460,9 +698,28 @@ public static class ClassEndpoints
     private static async Task<IResult> CancelScheduleAsync(
         Guid classId,
         Guid scheduleId,
+        HttpContext context,
         IDocumentSession session,
+        IMessageBus messageBus,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        var learningClass = await session.LoadAsync<LearningClass>(classId, cancellationToken);
+        if (learningClass is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(context, session, learningClass, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        if (learningClass.Status is LearningClassStatus.Completed or LearningClassStatus.Archived)
+        {
+            return Results.Conflict(new { error = "A completed or archived class cannot change its schedule." });
+        }
+
         var schedule = await session.LoadAsync<ClassSchedule>(scheduleId, cancellationToken);
         if (schedule is null || schedule.LearningClassId != classId)
         {
@@ -483,7 +740,28 @@ public static class ClassEndpoints
         schedule.UpdatedAt = DateTimeOffset.UtcNow;
         session.Update(schedule);
         await session.SaveChangesAsync(cancellationToken);
+        await PublishScheduleNotificationAsync(messageBus, loggerFactory, learningClass.OrganizationId,
+            classId, schedule, "schedule-cancelled", "Class session cancelled",
+            "A class session has been cancelled.");
         return Results.NoContent();
+    }
+
+    private static async Task PublishScheduleNotificationAsync(IMessageBus messageBus,
+        ILoggerFactory loggerFactory, Guid organizationId, Guid classId, ClassSchedule schedule,
+        string type, string title, string body)
+    {
+        try
+        {
+            await messageBus.PublishAsync(new ClassNotificationRequested(Guid.NewGuid(), organizationId,
+                classId, type, title,
+                $"{body} Session: {schedule.StartsAt:u} - {schedule.EndsAt:u}.", schedule.Id,
+                schedule.UpdatedAt));
+        }
+        catch (Exception exception)
+        {
+            loggerFactory.CreateLogger("LearningPlatform.Academics.Scheduling").LogWarning(exception,
+                "Unable to enqueue schedule notification for {ScheduleId}.", schedule.Id);
+        }
     }
 
     private static async Task<bool> CanReadClassAsync(
@@ -495,7 +773,16 @@ public static class ClassEndpoints
             return false;
         }
 
-        if (actor!.Permissions.Contains(PermissionCatalog.ManageClasses, StringComparer.Ordinal))
+        if (actor!.Permissions.Contains(PermissionCatalog.ManageOrganizations, StringComparer.Ordinal) ||
+            learningClass.CreatedBy == actor.UserId)
+        {
+            return true;
+        }
+
+        if (actor.Permissions.Contains(PermissionCatalog.ManageClasses, StringComparer.Ordinal) &&
+            await session.Query<ClassTeacherAssignment>().AnyAsync(assignment =>
+                assignment.LearningClassId == learningClass.Id && assignment.TeacherId == actor.UserId &&
+                assignment.Status == TeacherAssignmentStatus.Active, cancellationToken))
         {
             return true;
         }
@@ -504,6 +791,27 @@ public static class ClassEndpoints
             enrollment.LearningClassId == learningClass.Id &&
             enrollment.StudentId == actor.UserId &&
             enrollment.Status == EnrollmentStatus.Active, cancellationToken);
+    }
+
+    private static async Task<bool> CanManageClassAsync(
+        HttpContext context, IQuerySession session, LearningClass learningClass,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return false;
+        }
+
+        if (actor!.Permissions.Contains(PermissionCatalog.ManageOrganizations, StringComparer.Ordinal) ||
+            learningClass.CreatedBy == actor.UserId)
+        {
+            return true;
+        }
+
+        return actor.Permissions.Contains(PermissionCatalog.ManageClasses, StringComparer.Ordinal) &&
+            await session.Query<ClassTeacherAssignment>().AnyAsync(assignment =>
+                assignment.LearningClassId == learningClass.Id && assignment.TeacherId == actor.UserId &&
+                assignment.Status == TeacherAssignmentStatus.Active, cancellationToken);
     }
 }
 
@@ -515,6 +823,7 @@ public sealed record CreateScheduleRequest(Guid TeacherId, DateTimeOffset Starts
     DateTimeOffset EndsAt, string? Recurrence);
 public sealed record RescheduleRequest(DateTimeOffset StartsAt, DateTimeOffset EndsAt,
     string? Recurrence);
+public sealed record ChangeClassStatusRequest(LearningClassStatus Status);
 
 public sealed record ClassResponse(Guid Id, Guid CourseId, string Code, string Name,
     LearningClassStatus Status, DateOnly StartDate, DateOnly EndDate)

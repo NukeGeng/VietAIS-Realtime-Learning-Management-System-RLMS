@@ -23,6 +23,13 @@ public static class LiveSessionAuthorization
             return false;
         }
 
+        if (actor.Permissions.Contains(PermissionCatalog.ManageOrganizations, StringComparer.Ordinal) ||
+            await academics.IsClassCreatorAsync(actor.OrganizationId, liveSession.LearningClassId,
+                actor.UserId, cancellationToken))
+        {
+            return true;
+        }
+
         return await academics.IsTeacherAssignedAsync(actor.OrganizationId, liveSession.LearningClassId,
                    actor.UserId, cancellationToken) ||
                await academics.IsStudentEnrolledAsync(actor.OrganizationId, liveSession.LearningClassId,
@@ -46,8 +53,10 @@ public static class LiveSessionAuthorization
         }
 
         return actor.Permissions.Contains(PermissionCatalog.ManageLiveSessions, StringComparer.Ordinal) &&
-            await academics.IsTeacherAssignedAsync(actor.OrganizationId, liveSession.LearningClassId,
-                actor.UserId, cancellationToken);
+            (await academics.IsClassCreatorAsync(actor.OrganizationId, liveSession.LearningClassId,
+                 actor.UserId, cancellationToken) ||
+             await academics.IsTeacherAssignedAsync(actor.OrganizationId, liveSession.LearningClassId,
+                 actor.UserId, cancellationToken));
     }
 
     public static async Task<bool> CanManageAttendanceAsync(
@@ -67,7 +76,9 @@ public static class LiveSessionAuthorization
         }
 
         return actor.Permissions.Contains(PermissionCatalog.ManageAttendance, StringComparer.Ordinal) &&
-            await academics.IsTeacherAssignedAsync(actor.OrganizationId, liveSession.LearningClassId,
-                actor.UserId, cancellationToken);
+            (await academics.IsClassCreatorAsync(actor.OrganizationId, liveSession.LearningClassId,
+                 actor.UserId, cancellationToken) ||
+             await academics.IsTeacherAssignedAsync(actor.OrganizationId, liveSession.LearningClassId,
+                 actor.UserId, cancellationToken));
     }
 }

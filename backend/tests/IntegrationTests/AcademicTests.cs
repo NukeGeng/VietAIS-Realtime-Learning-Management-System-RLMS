@@ -64,7 +64,7 @@ public sealed class AcademicTests(FoundationFixture fixture) : IClassFixture<Fou
     }
 
     [Fact]
-    public async Task Invalid_course_input_is_rejected_and_students_cannot_manage_courses()
+    public async Task Invalid_course_input_is_rejected_and_students_only_see_enrolled_courses()
     {
         using var teacher = await AuthenticatedClientAsync();
         using var invalid = await PostWithCsrfAsync(teacher, "/api/academics/courses", new
@@ -81,8 +81,9 @@ public sealed class AcademicTests(FoundationFixture fixture) : IClassFixture<Fou
         var studentCookie = await fixture.LoginCookieAsync(email, password);
         using var student = fixture.Client();
         FoundationFixture.SetCookies(student, studentCookie);
-        Assert.Equal(HttpStatusCode.Forbidden,
-            (await student.GetAsync("/api/academics/courses")).StatusCode);
+        using var courses = await student.GetAsync("/api/academics/courses");
+        Assert.Equal(HttpStatusCode.OK, courses.StatusCode);
+        Assert.Empty(await courses.Content.ReadFromJsonAsync<CourseResponse[]>() ?? []);
     }
 
     private async Task<HttpClient> AuthenticatedClientAsync()

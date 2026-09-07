@@ -5,6 +5,9 @@ public static class PermissionCatalog
     public const string ManageUsers = "identity.users.manage";
     public const string ManageOrganizations = "identity.organizations.manage";
     public const string ManageRoles = "identity.roles.manage";
+    public const string ManageClassroomActivities = "classroom.activity.publish";
+    public const string SubmitClassroomActivities = "classroom.activity.submit";
+    public const string ManageEssayAssignments = "assessment.essays.manage";
     public const string ManageCourses = "academics.courses.manage";
     public const string ReadCourses = "academics.courses.read";
     public const string ManageClasses = "academics.classes.manage";
@@ -22,37 +25,46 @@ public static class PermissionCatalog
     public const string ManageGradebook = "assessment.gradebook.manage";
     public const string ReadAssessmentResults = "assessment.results.read";
     public const string ReadLearningProgress = "learning.progress.read";
+    public const string ManageLearningResources = "learning.resources.manage";
+    public const string ReadLearningResources = "learning.resources.read";
+    public const string ManageAnnouncements = "communication.announcements.manage";
+    public const string ReadAnnouncements = "communication.announcements.read";
+    public const string ReadNotifications = "communication.notifications.read";
+    public const string ReadReports = "reporting.classes.read";
+    public const string ReadStudentReports = "reporting.students.read";
 
     public static readonly string[] Administrator =
     [
         ManageUsers, ManageOrganizations, ManageRoles,
         ManageCourses, ReadCourses, ManageClasses, ReadClasses, ManageEnrollments, ReadEnrollments,
         ManageScheduling, ReadScheduling, ManageLiveSessions, JoinLiveSessions,
-        "classroom.activity.publish", "classroom.activity.submit", ManageAttendance,
+        ManageClassroomActivities, SubmitClassroomActivities, ManageAttendance,
         ManageAssessmentActivities, SubmitAssessmentActivities, GradeAssessmentSubmissions,
-        ManageGradebook, ReadAssessmentResults, "assessment.essays.manage",
-        ReadLearningProgress, "learning.resources.manage", "communication.announcements.manage",
-        "communication.notifications.read", "reporting.classes.read", "reporting.students.read"
+        ManageGradebook, ReadAssessmentResults, ManageEssayAssignments,
+        ReadLearningProgress, ManageLearningResources, ReadLearningResources,
+        ManageAnnouncements, ReadAnnouncements, ReadNotifications, ReadReports, ReadStudentReports
     ];
 
     public static readonly string[] Teacher =
     [
         ManageCourses, ReadCourses, ManageClasses, ReadClasses, ManageEnrollments, ReadEnrollments,
         ManageScheduling, ReadScheduling,
-        ManageLiveSessions, JoinLiveSessions, "classroom.activity.publish", ManageAttendance,
+        ManageLiveSessions, JoinLiveSessions, ManageClassroomActivities, ManageAttendance,
         SubmitAssessmentActivities,
         ManageAssessmentActivities, GradeAssessmentSubmissions, ManageGradebook,
-        ReadAssessmentResults, "assessment.essays.manage", ReadLearningProgress,
-        "learning.resources.manage",
-        "communication.announcements.manage", "communication.notifications.read",
-        "reporting.classes.read", "reporting.students.read"
+        ReadAssessmentResults, ManageEssayAssignments, ReadLearningProgress,
+        ManageLearningResources, ReadLearningResources,
+        ManageAnnouncements, ReadAnnouncements, ReadNotifications,
+        ReadReports, ReadStudentReports
     ];
 
     public static readonly string[] Student =
     [
-        ReadClasses, ReadEnrollments, JoinLiveSessions, "classroom.activity.submit",
+        ReadCourses, ReadClasses, ReadEnrollments, ReadScheduling, JoinLiveSessions,
+        SubmitClassroomActivities,
         SubmitAssessmentActivities, ReadAssessmentResults, ReadLearningProgress,
-        "communication.notifications.read"
+        ReadLearningResources,
+        ReadNotifications, ReadAnnouncements
     ];
 
     public static readonly IReadOnlyDictionary<string, string[]> BuiltInRoles =
@@ -62,4 +74,7 @@ public static class PermissionCatalog
             ["TEACHER"] = Teacher,
             ["STUDENT"] = Student
         };
+
+    public static readonly IReadOnlySet<string> All =
+        new HashSet<string>(BuiltInRoles.Values.SelectMany(value => value), StringComparer.Ordinal);
 }

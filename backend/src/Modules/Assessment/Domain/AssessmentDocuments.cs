@@ -138,12 +138,14 @@ public sealed class ClassOverviewView
     public long Version { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public List<ClassOverviewStudent> Students { get; set; } = [];
+    public List<ClassOverviewQuestionProgress> QuestionProgress { get; set; } = [];
 }
 
 public sealed class ClassOverviewStudent
 {
     public Guid StudentId { get; set; }
     public Guid AttemptId { get; set; }
+    public int AttemptNumber { get; set; } = 1;
     public Guid? CurrentQuestionId { get; set; }
     public int AnsweredCount { get; set; }
     public int TotalQuestions { get; set; }
@@ -152,6 +154,19 @@ public sealed class ClassOverviewStudent
     public DateTimeOffset? LastActivityAt { get; set; }
     public bool HelpRequested { get; set; }
     public long Version { get; set; }
+    /// <summary>
+    /// Question IDs answered by the current attempt. This is projection metadata
+    /// used to maintain the aggregate heatmap; answer values never enter the
+    /// overview read model or response.
+    /// </summary>
+    public Guid[] AnsweredQuestionIds { get; set; } = [];
+}
+
+public sealed class ClassOverviewQuestionProgress
+{
+    public Guid QuestionId { get; set; }
+    public int AnsweredStudentCount { get; set; }
+    public int CurrentStudentCount { get; set; }
 }
 
 public sealed class StudentAttemptDetailView
@@ -166,6 +181,9 @@ public sealed class StudentAttemptDetailView
     public Guid? CurrentQuestionId { get; set; }
     public StudentActivityStatus Status { get; set; }
     public Dictionary<Guid, string> Answers { get; set; } = [];
+    public bool HelpRequested { get; set; }
+    public DateTimeOffset? HelpRequestedAt { get; set; }
+    public DateTimeOffset? HelpAcknowledgedAt { get; set; }
     public int AnsweredCount { get; set; }
     public int TotalQuestions { get; set; }
     public decimal Progress { get; set; }

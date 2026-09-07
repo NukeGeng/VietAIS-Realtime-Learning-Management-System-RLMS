@@ -1,12 +1,18 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using LearningPlatform.Academics.Api;
 using LearningPlatform.Assessment.Api;
 using LearningPlatform.Assessment.Domain;
 using LearningPlatform.Classroom.Domain;
 using LearningPlatform.Classroom.Api;
 using LearningPlatform.Assessment.Realtime;
+using LearningPlatform.Communication.Api;
 using LearningPlatform.Learning.Api;
+using LearningPlatform.Reporting.Api;
+using LearningPlatform.Reporting.Domain;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 
@@ -18,6 +24,7 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
     public async Task Teacher_can_publish_immutable_activity_and_student_can_save_and_submit_attempt()
     {
         var setup = await CreateActivitySetupAsync();
+        using var detailTeacher = await CreateAssignedTeacherAsync(setup);
 
         using var studentActivity = await setup.Student.GetAsync(
             $"/api/assessment/activities/{setup.Activity.Id:D}");
@@ -66,7 +73,7 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
                          {
                              options.Transports = HttpTransportType.LongPolling;
                              options.HttpMessageHandlerFactory = _ => fixture.Server.CreateHandler();
-                             options.Headers["Cookie"] = setup.Teacher.DefaultRequestHeaders
+                             options.Headers["Cookie"] = detailTeacher.DefaultRequestHeaders
                                  .GetValues("Cookie").Single();
                          }).Build())
         {
@@ -124,11 +131,18 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         Assert.Equal(5, overviewStudent.Version);
         Assert.Equal(1, overviewStudent.AnsweredCount);
         Assert.Equal(100m, overviewStudent.Progress);
+        var questionProgress = Assert.Single(overview.QuestionProgress);
+        Assert.Equal(questionId, questionProgress.QuestionId);
+        Assert.Equal(1, questionProgress.AnsweredStudentCount);
         Assert.DoesNotContain("Answers", await (await setup.Teacher.GetAsync(
             $"/api/assessment/classes/{setup.ClassId:D}/activities/{setup.Activity.Id:D}/overview"))
             .Content.ReadAsStringAsync());
 
-        using var detailResponse = await setup.Teacher.GetAsync(
+        using var adminDetailResponse = await setup.Teacher.GetAsync(
+            $"/api/assessment/attempts/{started.Id:D}/detail");
+        Assert.Equal(HttpStatusCode.Forbidden, adminDetailResponse.StatusCode);
+
+        using var detailResponse = await detailTeacher.GetAsync(
             $"/api/assessment/attempts/{started.Id:D}/detail");
         Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
         var detail = await detailResponse.Content.ReadFromJsonAsync<StudentAttemptDetailResponse>();
@@ -164,6 +178,81 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         Assert.Equal(HttpStatusCode.OK, publishGrade.StatusCode);
         var publishedGrade = await publishGrade.Content.ReadFromJsonAsync<GradeEntryResponse>();
         Assert.Equal(GradeEntryStatus.Published, publishedGrade!.Status);
+
+        NotificationResponse[] resultNotifications = [];
+        using (var notificationTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (!resultNotifications.Any(notification =>
+                       notification.Type == "result-published" &&
+                       notification.SourceId == automaticGrade.Id))
+            {
+                resultNotifications = await setup.Student.GetFromJsonAsync<NotificationResponse[]>(
+                    "/api/communication/notifications?unreadOnly=true",
+                    notificationTimeout.Token) ?? [];
+                if (resultNotifications.Any(notification =>
+                        notification.Type == "result-published" &&
+                        notification.SourceId == automaticGrade.Id))
+                {
+                    break;
+                }
+
+                await Task.Delay(100, notificationTimeout.Token);
+            }
+        }
+        Assert.Contains(resultNotifications, notification =>
+            notification.Type == "result-published" && notification.SourceId == automaticGrade.Id);
+
+        var organization = await fixture.EnsureBootstrappedAsync();
+        ClassReportSnapshot? projectedReport = null;
+        using (var projectionTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (projectedReport is null || projectedReport.PublishedGradeCount == 0)
+            {
+                await using var projectionSession = fixture.Services.GetRequiredService<IDocumentStore>()
+                    .QuerySession(organization.OrganizationId.ToString("D"));
+                projectedReport = await projectionSession.LoadAsync<ClassReportSnapshot>(
+                    ReportingConstants.ClassSnapshotId(setup.ClassId), projectionTimeout.Token);
+                if (projectedReport?.PublishedGradeCount > 0)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, projectionTimeout.Token);
+            }
+        }
+        Assert.Equal(1, projectedReport!.PublishedGradeCount);
+
+        ClassReportResponse? classReport = null;
+        using (var reportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (classReport is null || classReport.PublishedGradeCount == 0)
+            {
+                using var reportResponse = await setup.Teacher.GetAsync(
+                    $"/api/reporting/classes/{setup.ClassId:D}/summary", reportTimeout.Token);
+                Assert.Equal(HttpStatusCode.OK, reportResponse.StatusCode);
+                classReport = await reportResponse.Content.ReadFromJsonAsync<ClassReportResponse>(
+                    reportTimeout.Token);
+                if (classReport!.PublishedGradeCount > 0)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, reportTimeout.Token);
+            }
+        }
+        Assert.Equal(1, classReport!.PublishedGradeCount);
+        Assert.Equal(1, classReport.SubmissionCount);
+
+        using var activityReport = await setup.Teacher.GetAsync(
+            $"/api/reporting/activities/{setup.Activity.Id:D}/summary");
+        Assert.Equal(HttpStatusCode.OK, activityReport.StatusCode);
+        var activitySummary = (await activityReport.Content.ReadFromJsonAsync<ActivityReportResponse>())!;
+        Assert.Equal(1, activitySummary.PublishedGradeCount);
+        Assert.Equal(1, activitySummary.Questions[0].CorrectAnswerCount);
+
+        using var studentReport = await setup.Student.GetAsync(
+            $"/api/reporting/classes/{setup.ClassId:D}/students/me");
+        Assert.Equal(HttpStatusCode.OK, studentReport.StatusCode);
 
         using var teacherGradebook = await setup.Teacher.GetAsync(
             $"/api/assessment/classes/{setup.ClassId:D}/gradebook");
@@ -240,6 +329,33 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         var unchanged = await activityAfterVersion.Content.ReadFromJsonAsync<AssessmentActivityResponse>();
         Assert.Equal("What is two plus two?", unchanged!.Questions[0].Prompt);
 
+        using var weightUpdate = await PutWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/grade-items/{automaticGrade.GradeItemId:D}", new { Weight = 60m });
+        Assert.Equal(HttpStatusCode.OK, weightUpdate.StatusCode);
+        var updatedItem = await weightUpdate.Content.ReadFromJsonAsync<GradebookItemResponse>();
+        Assert.Equal(60m, updatedItem!.Weight);
+        using var adjustment = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/grade-entries/{automaticGrade.Id:D}/adjust", new
+            {
+                Score = 4m,
+                Feedback = "Adjusted after review",
+                Reason = "Teacher review found a scoring correction."
+            });
+        Assert.Equal(HttpStatusCode.OK, adjustment.StatusCode);
+        var adjusted = await adjustment.Content.ReadFromJsonAsync<GradeEntryResponse>();
+        Assert.Equal(GradeEntryStatus.Draft, adjusted!.Status);
+        Assert.Equal(4m, adjusted.Score);
+        using var adjustments = await setup.Teacher.GetAsync(
+            $"/api/assessment/grade-entries/{automaticGrade.Id:D}/adjustments");
+        Assert.Equal(HttpStatusCode.OK, adjustments.StatusCode);
+        var audit = await adjustments.Content.ReadFromJsonAsync<GradeAdjustmentResponse[]>();
+        var adjustmentRecord = Assert.Single(audit!);
+        Assert.Equal(5m, adjustmentRecord.PreviousScore);
+        Assert.Equal(4m, adjustmentRecord.NewScore);
+        using var republish = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/grade-entries/{automaticGrade.Id:D}/publish", new { });
+        Assert.Equal(HttpStatusCode.OK, republish.StatusCode);
+
         var otherOrganization = await fixture.CreateTestOrganizationAsync();
         using var otherTenant = fixture.Client();
         FoundationFixture.SetCookies(otherTenant, await fixture.LoginCookieAsync(otherOrganization.Email,
@@ -283,6 +399,90 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         using var resume = await PostWithCsrfAsync(setup.Teacher,
             $"/api/assessment/activities/{setup.Activity.Id:D}/resume", new { });
         Assert.Equal(HttpStatusCode.OK, resume.StatusCode);
+    }
+
+    [Fact]
+    public async Task Student_idle_and_help_state_are_visible_to_teacher_and_can_be_resolved()
+    {
+        var setup = await CreateActivitySetupAsync();
+        using var start = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        start.EnsureSuccessStatusCode();
+        var attempt = (await start.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
+
+        using var idle = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/idle", new { });
+        Assert.Equal(HttpStatusCode.OK, idle.StatusCode);
+        var idleAttempt = (await idle.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
+        Assert.Equal(StudentActivityStatus.Idle, idleAttempt.Status);
+
+        using var resume = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/resume", new { });
+        Assert.Equal(HttpStatusCode.OK, resume.StatusCode);
+        Assert.Equal(StudentActivityStatus.InProgress,
+            (await resume.Content.ReadFromJsonAsync<StudentActivityResponse>())!.Status);
+
+        using var help = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/help", new { });
+        Assert.Equal(HttpStatusCode.OK, help.StatusCode);
+        var helpAttempt = (await help.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
+        Assert.True(helpAttempt.HelpRequested);
+        Assert.NotNull(helpAttempt.HelpRequestedAt);
+
+        ClassOverviewResponse? overview = null;
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (overview is null || !Assert.Single(overview.Students).HelpRequested)
+            {
+                using var response = await setup.Teacher.GetAsync(
+                    $"/api/assessment/classes/{setup.ClassId:D}/activities/{setup.Activity.Id:D}/overview",
+                    timeout.Token);
+                response.EnsureSuccessStatusCode();
+                overview = await response.Content.ReadFromJsonAsync<ClassOverviewResponse>(timeout.Token);
+                if (overview is not null && Assert.Single(overview.Students).HelpRequested)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+
+        using var helpQueue = await setup.Teacher.GetAsync(
+            $"/api/assessment/classes/{setup.ClassId:D}/help-requests");
+        Assert.Equal(HttpStatusCode.OK, helpQueue.StatusCode);
+        var requests = await helpQueue.Content.ReadFromJsonAsync<HelpRequestResponse[]>();
+        var request = Assert.Single(requests!);
+        Assert.Equal(attempt.Id, request.AttemptId);
+        Assert.Equal(setup.Activity.Id, request.ActivityId);
+        Assert.Equal(HelpRequestStatus.Requested, request.HelpStatus);
+        Assert.True(request.WaitDurationSeconds >= 0);
+
+        using var acknowledged = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/attempts/{attempt.Id:D}/help/acknowledge", new { });
+        Assert.Equal(HttpStatusCode.OK, acknowledged.StatusCode);
+        var acknowledgedAttempt = (await acknowledged.Content
+            .ReadFromJsonAsync<StudentActivityResponse>())!;
+        Assert.True(acknowledgedAttempt.HelpRequested);
+        Assert.NotNull(acknowledgedAttempt.HelpAcknowledgedAt);
+
+        using var acknowledgedQueue = await setup.Teacher.GetAsync(
+            $"/api/assessment/classes/{setup.ClassId:D}/help-requests");
+        acknowledgedQueue.EnsureSuccessStatusCode();
+        var acknowledgedRequest = Assert.Single(
+            (await acknowledgedQueue.Content.ReadFromJsonAsync<HelpRequestResponse[]>())!);
+        Assert.Equal(HelpRequestStatus.Acknowledged, acknowledgedRequest.HelpStatus);
+        Assert.NotNull(acknowledgedRequest.AcknowledgedAt);
+
+        using var resolved = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/attempts/{attempt.Id:D}/help/resolve", new { });
+        Assert.Equal(HttpStatusCode.OK, resolved.StatusCode);
+        Assert.False((await resolved.Content.ReadFromJsonAsync<StudentActivityResponse>())!.HelpRequested);
+
+        using var resolvedQueue = await setup.Teacher.GetAsync(
+            $"/api/assessment/classes/{setup.ClassId:D}/help-requests");
+        resolvedQueue.EnsureSuccessStatusCode();
+        Assert.Empty((await resolvedQueue.Content.ReadFromJsonAsync<HelpRequestResponse[]>())!);
     }
 
     [Fact]
@@ -415,6 +615,7 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
     public async Task Student_detail_switch_unsubscribes_previous_attempt_before_subscribing_next()
     {
         var setup = await CreateActivitySetupAsync(includeSecondStudent: true);
+        using var detailTeacher = await CreateAssignedTeacherAsync(setup);
         var secondStudent = setup.SecondStudent!;
 
         using var startA = await PostWithCsrfAsync(setup.Student,
@@ -437,7 +638,7 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
             {
                 options.Transports = HttpTransportType.LongPolling;
                 options.HttpMessageHandlerFactory = _ => fixture.Server.CreateHandler();
-                options.Headers["Cookie"] = setup.Teacher.DefaultRequestHeaders
+                options.Headers["Cookie"] = detailTeacher.DefaultRequestHeaders
                     .GetValues("Cookie").Single();
             }).Build();
         connection.On<ActivityDetailDelta>("activity-detail-delta", delta =>
@@ -504,6 +705,28 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         var second = (await startTwo.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
         Assert.Equal(2, second.AttemptNumber);
         Assert.NotEqual(first.Id, second.Id);
+
+        ClassOverviewResponse? retakeOverview = null;
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (retakeOverview is null || Assert.Single(retakeOverview.Students).AttemptNumber < 2)
+            {
+                using var response = await setup.Teacher.GetAsync(
+                    $"/api/assessment/classes/{setup.ClassId:D}/activities/{setup.Activity.Id:D}/overview",
+                    timeout.Token);
+                response.EnsureSuccessStatusCode();
+                retakeOverview = await response.Content.ReadFromJsonAsync<ClassOverviewResponse>(
+                    timeout.Token);
+                if (retakeOverview is not null && Assert.Single(retakeOverview.Students).AttemptNumber == 2)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+        Assert.Equal(2, Assert.Single(retakeOverview!.Students).AttemptNumber);
+
         using var submitTwo = await PostWithCsrfAsync(setup.Student,
             $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/submit", new { });
         submitTwo.EnsureSuccessStatusCode();
@@ -512,6 +735,257 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
             $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
         Assert.Equal(HttpStatusCode.Conflict, startThree.StatusCode);
     }
+
+    [Fact]
+    public async Task Exam_results_are_hidden_until_release_time_in_student_reads()
+    {
+        var setup = await CreateActivitySetupAsync(activityKind: AssessmentActivityKind.Exam,
+            examPolicy: new ExamPolicy
+            {
+                AttemptLimit = 1,
+                ResultsReleaseAt = DateTimeOffset.UtcNow.AddMinutes(5)
+            });
+
+        using var start = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        start.EnsureSuccessStatusCode();
+        using var submit = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/submit", new { });
+        submit.EnsureSuccessStatusCode();
+        var submission = (await submit.Content.ReadFromJsonAsync<SubmissionResponse>())!;
+
+        using var draft = await setup.Teacher.GetAsync(
+            $"/api/assessment/submissions/{submission.Id:D}/grade");
+        var grade = (await draft.Content.ReadFromJsonAsync<GradeEntryResponse>())!;
+        using var publish = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/grade-entries/{grade.Id:D}/publish", new { });
+        publish.EnsureSuccessStatusCode();
+
+        using var hiddenResult = await setup.Student.GetAsync(
+            $"/api/assessment/activities/{setup.Activity.Id:D}/result");
+        Assert.Equal(HttpStatusCode.NotFound, hiddenResult.StatusCode);
+
+        using var hiddenGradebook = await setup.Student.GetAsync(
+            $"/api/assessment/classes/{setup.ClassId:D}/gradebook/me");
+        hiddenGradebook.EnsureSuccessStatusCode();
+        var studentGradebook = (await hiddenGradebook.Content.ReadFromJsonAsync<GradebookResponse>())!;
+        var hiddenCell = Assert.Single(Assert.Single(studentGradebook.Students).Entries);
+        Assert.Null(hiddenCell.Score);
+
+        using var hiddenProgress = await setup.Student.GetAsync(
+            $"/api/learning/classes/{setup.ClassId:D}/progress/me");
+        hiddenProgress.EnsureSuccessStatusCode();
+        var progress = (await hiddenProgress.Content.ReadFromJsonAsync<LearningProgressResponse>())!;
+        Assert.DoesNotContain(progress.Entries, entry => entry.ActivityId == setup.Activity.Id);
+
+        using var teacherGradebookResponse = await setup.Teacher.GetAsync(
+            $"/api/assessment/classes/{setup.ClassId:D}/gradebook");
+        teacherGradebookResponse.EnsureSuccessStatusCode();
+        var teacherGradebook = (await teacherGradebookResponse.Content
+            .ReadFromJsonAsync<GradebookResponse>())!;
+        var teacherCell = Assert.Single(Assert.Single(teacherGradebook.Students).Entries);
+        Assert.Equal(grade.Score, teacherCell.Score);
+    }
+
+    [Fact]
+    public async Task Essay_assignment_validates_group_topic_and_report_before_manual_grade()
+    {
+        var setup = await CreateActivitySetupAsync(includeSecondStudent: true);
+        var policy = new ReportValidationPolicy
+        {
+            MinimumPages = 1,
+            MinimumWords = 5,
+            MinimumCharacters = 20,
+            RequiredSections = ["Introduction", "Conclusion"],
+            RequireTopicMatch = true
+        };
+
+        using var createAssignment = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/classes/{setup.ClassId:D}/essay-assignments", new
+            {
+                Title = "Realtime essay",
+                Description = "A report for the live learning class",
+                Deadline = (DateTimeOffset?)null,
+                MaxScore = 100,
+                MaxGroupSize = 2,
+                AllowResubmission = true,
+                ValidationPolicy = policy
+            });
+        Assert.Equal(HttpStatusCode.Created, createAssignment.StatusCode);
+        var assignment = (await createAssignment.Content.ReadFromJsonAsync<EssayAssignmentResponse>())!;
+
+        using var publishAssignment = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/essay-assignments/{assignment.Id:D}/publish", new { });
+        publishAssignment.EnsureSuccessStatusCode();
+
+        using var createGroup = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/essay-assignments/{assignment.Id:D}/groups", new { Name = "Realtime team" });
+        Assert.Equal(HttpStatusCode.Created, createGroup.StatusCode);
+        var group = (await createGroup.Content.ReadFromJsonAsync<EssayGroupResponse>())!;
+        Assert.Contains(group.Members, member => member.StudentId == setup.StudentId);
+
+        using var addMember = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/essay-groups/{group.Id:D}/members", new
+            {
+                StudentId = setup.SecondStudentId
+            });
+        Assert.Equal(HttpStatusCode.OK, addMember.StatusCode);
+        group = (await addMember.Content.ReadFromJsonAsync<EssayGroupResponse>())!;
+        Assert.Equal(2, group.Members.Length);
+
+        using var registerTopic = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/essay-groups/{group.Id:D}/topic", new
+            {
+                ProposedTitle = "  Realtime   Learning Systems  "
+            });
+        Assert.Equal(HttpStatusCode.OK, registerTopic.StatusCode);
+        var topic = (await registerTopic.Content.ReadFromJsonAsync<EssayTopicResponse>())!;
+        Assert.Equal(EssayTopicStatus.PendingReview, topic.Status);
+
+        using var approveTopic = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/essay-topics/{topic.Id:D}/approve", new { });
+        Assert.Equal(HttpStatusCode.OK, approveTopic.StatusCode);
+        topic = (await approveTopic.Content.ReadFromJsonAsync<EssayTopicResponse>())!;
+        Assert.Equal("Realtime Learning Systems", topic.CanonicalTitle);
+
+        using var lockTopic = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/essay-topics/{topic.Id:D}/lock", new { });
+        Assert.Equal(HttpStatusCode.OK, lockTopic.StatusCode);
+
+        using var requestTopicChange = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/essay-groups/{group.Id:D}/topic/change-request", new
+            {
+                ProposedTitle = "Realtime Learning Platform Systems"
+            });
+        Assert.Equal(HttpStatusCode.OK, requestTopicChange.StatusCode);
+        topic = (await requestTopicChange.Content.ReadFromJsonAsync<EssayTopicResponse>())!;
+        Assert.Equal(EssayTopicStatus.PendingReview, topic.Status);
+
+        using var approveChangedTopic = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/essay-topics/{topic.Id:D}/approve", new { });
+        Assert.Equal(HttpStatusCode.OK, approveChangedTopic.StatusCode);
+        topic = (await approveChangedTopic.Content.ReadFromJsonAsync<EssayTopicResponse>())!;
+        Assert.Equal("Realtime Learning Platform Systems", topic.CanonicalTitle);
+        using var lockChangedTopic = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/essay-topics/{topic.Id:D}/lock", new { });
+        Assert.Equal(HttpStatusCode.OK, lockChangedTopic.StatusCode);
+
+        var invalidPdf = PdfReport("Wrong Topic", "Introduction", "Conclusion", "short");
+        using var invalidUpload = await PostMultipartWithCsrfAsync(setup.Student,
+            $"/api/assessment/essay-assignments/{assignment.Id:D}/groups/{group.Id:D}/submissions",
+            invalidPdf, "wrong-topic.pdf");
+        Assert.Equal(HttpStatusCode.BadRequest, invalidUpload.StatusCode);
+        var invalidBody = await invalidUpload.Content.ReadAsStringAsync();
+        Assert.Contains("does not match the approved canonical topic", invalidBody,
+            StringComparison.Ordinal);
+        var invalidPayload = System.Text.Json.JsonSerializer.Deserialize<EssayUploadErrorResponse>(invalidBody,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.NotNull(invalidPayload?.Submission);
+        Assert.Equal(EssaySubmissionStatus.Rejected, invalidPayload!.Submission!.Status);
+
+        var validPdf = PdfReport("Realtime Learning Platform Systems", "Introduction", "Conclusion",
+            "This report explains shared learning state and classroom progress.");
+        using var validUpload = await PostMultipartWithCsrfAsync(setup.Student,
+            $"/api/assessment/essay-assignments/{assignment.Id:D}/groups/{group.Id:D}/submissions",
+            validPdf, "report.pdf");
+        Assert.Equal(HttpStatusCode.Created, validUpload.StatusCode);
+        var firstSubmission = (await validUpload.Content.ReadFromJsonAsync<EssaySubmissionResponse>())!;
+        Assert.Equal(EssaySubmissionStatus.Submitted, firstSubmission.Status);
+        Assert.Equal(2, firstSubmission.Version);
+        Assert.NotEqual(Guid.Empty, firstSubmission.FileAssetId);
+
+        using var reportFile = await setup.Teacher.GetAsync(
+            $"/api/assessment/essay-submissions/{firstSubmission.Id:D}/file");
+        Assert.Equal(HttpStatusCode.OK, reportFile.StatusCode);
+        var reportFileResponse = await reportFile.Content.ReadFromJsonAsync<EssaySubmissionFileResponse>();
+        Assert.Equal(firstSubmission.Id, reportFileResponse!.SubmissionId);
+        Assert.StartsWith("https://files.test/", reportFileResponse.AccessUrl,
+            StringComparison.Ordinal);
+
+        using var resubmission = await PostMultipartWithCsrfAsync(setup.Student,
+            $"/api/assessment/essay-assignments/{assignment.Id:D}/groups/{group.Id:D}/submissions",
+            PdfReport("Realtime Learning Platform Systems", "Introduction", "Conclusion",
+                "This revised report adds the requested evidence and discussion."), "report-v2.pdf");
+        Assert.Equal(HttpStatusCode.Created, resubmission.StatusCode);
+        var submission = (await resubmission.Content.ReadFromJsonAsync<EssaySubmissionResponse>())!;
+        Assert.Equal(EssaySubmissionStatus.Submitted, submission.Status);
+        Assert.Equal(3, submission.Version);
+
+        using var submissions = await setup.Teacher.GetAsync(
+            $"/api/assessment/essay-groups/{group.Id:D}/submissions");
+        Assert.Equal(HttpStatusCode.OK, submissions.StatusCode);
+        var history = (await submissions.Content.ReadFromJsonAsync<EssaySubmissionResponse[]>())!;
+        Assert.Equal(3, history.Length);
+        Assert.Contains(history, value => value.Status == EssaySubmissionStatus.Rejected && value.Version == 1);
+        Assert.Contains(history, value => value.Status == EssaySubmissionStatus.Superseded && value.Version == 2);
+        Assert.Contains(history, value => value.Status == EssaySubmissionStatus.Submitted && value.Version == 3);
+
+        using var grade = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/essay-submissions/{submission.Id:D}/grade", new
+            {
+                Score = 88m,
+                Feedback = "Clear report with a well-defined topic."
+            });
+        Assert.Equal(HttpStatusCode.OK, grade.StatusCode);
+        var gradeEntry = (await grade.Content.ReadFromJsonAsync<GradeEntryResponse>())!;
+        Assert.Equal(88m, gradeEntry.Score);
+        Assert.Equal(GradeSource.Manual, gradeEntry.Source);
+
+        using var publishGrade = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/essay-grade-entries/{gradeEntry.Id:D}/publish", new { });
+        Assert.Equal(HttpStatusCode.OK, publishGrade.StatusCode);
+
+        using var result = await setup.Student.GetAsync(
+            $"/api/assessment/essay-assignments/{assignment.Id:D}/groups/{group.Id:D}/result");
+        Assert.Equal(HttpStatusCode.OK, result.StatusCode);
+        var published = (await result.Content.ReadFromJsonAsync<GradeEntryResponse>())!;
+        Assert.Equal(88m, published.Score);
+        Assert.Equal(GradeEntryStatus.Published, published.Status);
+
+        using var secondResult = await setup.SecondStudent!.GetAsync(
+            $"/api/assessment/essay-assignments/{assignment.Id:D}/groups/{group.Id:D}/result");
+        Assert.Equal(HttpStatusCode.OK, secondResult.StatusCode);
+        var secondPublished = (await secondResult.Content.ReadFromJsonAsync<GradeEntryResponse>())!;
+        Assert.Equal(88m, secondPublished.Score);
+        Assert.Equal(GradeEntryStatus.Published, secondPublished.Status);
+
+        using var essayGradebookResponse = await setup.Student.GetAsync(
+            $"/api/assessment/classes/{setup.ClassId:D}/gradebook/me");
+        essayGradebookResponse.EnsureSuccessStatusCode();
+        var essayGradebook = (await essayGradebookResponse.Content
+            .ReadFromJsonAsync<GradebookResponse>())!;
+        var essayItem = Assert.Single(essayGradebook.Items,
+            item => item.EssayAssignmentId == assignment.Id);
+        Assert.Equal(assignment.Id, essayItem.EssayAssignmentId);
+        var essayCell = Assert.Single(Assert.Single(essayGradebook.Students).Entries,
+            entry => entry.GradeItemId == essayItem.GradeItemId);
+        Assert.Equal(88m, essayCell.Score);
+    }
+
+    private static byte[] PdfReport(string title, string firstSection, string secondSection, string body)
+    {
+        var content = $"%PDF-1.4\n1 0 obj << /Type /Page >> endobj\nBT ({title}) Tj ET\n" +
+                      $"BT ({firstSection}) Tj ET\nBT ({secondSection}) Tj ET\nBT ({body}) Tj ET\n%%EOF";
+        return Encoding.ASCII.GetBytes(content);
+    }
+
+    private async Task<HttpResponseMessage> PostMultipartWithCsrfAsync(HttpClient client, string path,
+        byte[] bytes, string fileName)
+    {
+        var authCookie = client.DefaultRequestHeaders.GetValues("Cookie").Single()
+            .Split(';', StringSplitOptions.TrimEntries)
+            .Single(cookie => cookie.StartsWith("__Host-rlms=", StringComparison.Ordinal));
+        FoundationFixture.SetCookies(client, authCookie);
+        var csrf = await fixture.IssueCsrfAsync(client);
+        FoundationFixture.SetCookies(client, authCookie, csrf.Cookie);
+        client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
+        client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf.Token);
+        using var content = new MultipartFormDataContent();
+        content.Add(new ByteArrayContent(bytes), "file", fileName);
+        return await client.PostAsync(path, content);
+    }
+
+    private sealed record EssayUploadErrorResponse(string Error, EssaySubmissionResponse? Submission);
 
     private async Task<ActivitySetup> CreateActivitySetupAsync(
         QuestionType questionType = QuestionType.SingleChoice, bool includeSecondStudent = false,
@@ -649,6 +1123,24 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         });
         create.EnsureSuccessStatusCode();
         return (await create.Content.ReadFromJsonAsync<ClassResponse>())!;
+    }
+
+    private async Task<HttpClient> CreateAssignedTeacherAsync(ActivitySetup setup)
+    {
+        var email = $"activity-teacher-{Guid.NewGuid():N}@rlms.test";
+        var password = "activity teacher password";
+        var teacher = await fixture.CreateTestAccountAsync(email, password, "TEACHER");
+        using var assignment = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/academics/classes/{setup.ClassId:D}/teachers", new
+            {
+                TeacherId = teacher.UserId
+            });
+        assignment.EnsureSuccessStatusCode();
+
+        var client = fixture.Client();
+        FoundationFixture.SetCookies(client,
+            await fixture.LoginCookieAsync(email, password));
+        return client;
     }
 
     private async Task<HttpResponseMessage> PostWithCsrfAsync(HttpClient client, string path, object body)

@@ -15,6 +15,18 @@
           "Weasel.Storage": "9.29.0"
         }
       },
+      "WolverineFx": {
+        "type": "Direct",
+        "requested": "[6.33.0, )",
+        "resolved": "6.33.0",
+        "contentHash": "ioNpB4WnCJfL+HPbidptw5pWnFL0VCJFPcQDsQ0NOdJEL7/UaGiL1N1+OoHWqzNr5sUG+UWWioiKLNIjqMT+Gg==",
+        "dependencies": {
+          "JasperFx": "2.60.0",
+          "JasperFx.Events": "2.60.0",
+          "JasperFx.SourceGenerator": "2.60.0",
+          "NewId": "4.0.1"
+        }
+      },
       "DistributedLock.Core": {
         "type": "Transitive",
         "resolved": "1.0.8",
@@ -163,7 +175,8 @@
         "type": "Project",
         "dependencies": {
           "LearningPlatform.Identity": "[1.0.0, )",
-          "Marten": "[9.32.0, )"
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
         }
       },
       "learningplatform.classroom": {
@@ -197,18 +210,6 @@
         "dependencies": {
           "RESPite": "3.1.31",
           "System.IO.Hashing": "10.0.5"
-        }
-      },
-      "WolverineFx": {
-        "type": "CentralTransitive",
-        "requested": "[6.33.0, )",
-        "resolved": "6.33.0",
-        "contentHash": "ioNpB4WnCJfL+HPbidptw5pWnFL0VCJFPcQDsQ0NOdJEL7/UaGiL1N1+OoHWqzNr5sUG+UWWioiKLNIjqMT+Gg==",
-        "dependencies": {
-          "JasperFx": "2.60.0",
-          "JasperFx.Events": "2.60.0",
-          "JasperFx.SourceGenerator": "2.60.0",
-          "NewId": "4.0.1"
         }
       }
     }

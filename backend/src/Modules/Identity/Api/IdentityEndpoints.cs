@@ -26,11 +26,29 @@ public static class IdentityEndpoints
         endpoints.MapPost("/api/identity/login", LoginAsync).AllowAnonymous();
         endpoints.MapPost("/api/identity/logout", (Delegate)LogoutAsync);
         endpoints.MapGet("/api/identity/me", GetMeAsync);
+        endpoints.MapGet("/api/identity/organization", GetOrganizationAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ReadClasses);
+        endpoints.MapPut("/api/identity/organization", UpdateOrganizationAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageOrganizations);
         endpoints.MapGet("/api/identity/roles", GetRolesAsync)
-            .RequireAuthorization(IdentityAuthorizationPolicies.ManageUsers);
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageRoles);
+        endpoints.MapPost("/api/identity/roles", CreateRoleAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageRoles);
+        endpoints.MapPut("/api/identity/roles/{roleId:guid}", UpdateRoleAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageRoles);
+        endpoints.MapDelete("/api/identity/roles/{roleId:guid}", DeleteRoleAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageRoles);
         endpoints.MapGet("/api/identity/users", GetUsersAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageUsers);
         endpoints.MapPost("/api/identity/users", CreateUserAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageUsers);
+        endpoints.MapPut("/api/identity/users/{userId:guid}", UpdateUserAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageUsers);
+        endpoints.MapPost("/api/identity/users/{userId:guid}/disable",
+                DisableUserAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageUsers);
+        endpoints.MapPost("/api/identity/users/{userId:guid}/enable",
+                EnableUserAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageUsers);
     }
 
@@ -224,11 +242,210 @@ public static class IdentityEndpoints
             : Results.Ok(AccountResponse.From(account, actor.Permissions));
     }
 
+    private static async Task<IResult> GetOrganizationAsync(
+        HttpContext context, IDocumentStore store, CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        await using var control = store.QuerySession(DomainIdentityConstants.ControlPlaneTenantId);
+        var organization = await control.LoadAsync<Organization>(actor!.OrganizationId,
+            cancellationToken);
+        return organization is null
+            ? Results.NotFound()
+            : Results.Ok(OrganizationResponse.From(organization));
+    }
+
+    private static async Task<IResult> UpdateOrganizationAsync(
+        UpdateOrganizationRequest request, HttpContext context, IDocumentStore store,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        await using var control = store.LightweightSession(DomainIdentityConstants.ControlPlaneTenantId);
+        var organization = await control.LoadAsync<Organization>(actor!.OrganizationId,
+            cancellationToken);
+        if (organization is null)
+        {
+            return Results.NotFound();
+        }
+
+        try
+        {
+            organization.Name = IdentityRules.RequireDisplayName(request.Name);
+            control.Update(organization);
+            await control.SaveChangesAsync(cancellationToken);
+            return Results.Ok(OrganizationResponse.From(organization));
+        }
+        catch (IdentityValidationException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+    }
+
     private static async Task<IResult> GetRolesAsync(IQuerySession session, CancellationToken cancellationToken)
     {
         var roles = await session.Query<RoleDefinition>().OrderBy(role => role.Name).ToListAsync(cancellationToken);
         return Results.Ok(roles.Select(role => new RoleResponse(role.Id, role.Name, role.Permissions)));
     }
+
+    private static async Task<IResult> CreateRoleAsync(
+        CreateRoleRequest request,
+        HttpContext context,
+        IDocumentSession session,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        try
+        {
+            var name = IdentityRules.NormalizeRoleName(request.Name);
+            if (PermissionCatalog.BuiltInRoles.ContainsKey(name))
+            {
+                return Results.Conflict(new { error = "Built-in roles cannot be recreated." });
+            }
+
+            var permissions = IdentityRules.RequirePermissions(request.Permissions, PermissionCatalog.All);
+            if (permissions.Any(permission => !actor!.Permissions.Contains(permission,
+                    StringComparer.Ordinal)))
+            {
+                return Results.Forbid();
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var role = new RoleDefinition
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = actor!.OrganizationId,
+                Name = name,
+                NormalizedName = name,
+                Permissions = permissions,
+                CreatedAt = now
+            };
+            session.Insert(role);
+            await session.SaveChangesAsync(cancellationToken);
+            return Results.Created($"/api/identity/roles/{role.Id:D}",
+                new RoleResponse(role.Id, role.Name, role.Permissions));
+        }
+        catch (IdentityValidationException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+        catch (DocumentAlreadyExistsException)
+        {
+            return Results.Conflict(new { error = "A role with that name already exists." });
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return Results.Conflict(new { error = "A role with that name already exists." });
+        }
+    }
+
+    private static async Task<IResult> UpdateRoleAsync(
+        Guid roleId,
+        UpdateRoleRequest request,
+        HttpContext context,
+        IDocumentSession session,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var role = await session.LoadAsync<RoleDefinition>(roleId, cancellationToken);
+        if (role is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (IsBuiltInRole(actor!.OrganizationId, role))
+        {
+            return Results.Conflict(new { error = "Built-in roles cannot be changed." });
+        }
+
+        try
+        {
+            var name = request.Name is null ? role.NormalizedName : IdentityRules.NormalizeRoleName(request.Name);
+            if (PermissionCatalog.BuiltInRoles.ContainsKey(name))
+            {
+                return Results.Conflict(new { error = "A built-in role name is reserved." });
+            }
+
+            var permissions = request.Permissions is null
+                ? role.Permissions
+                : IdentityRules.RequirePermissions(request.Permissions, PermissionCatalog.All);
+            if (permissions.Any(permission => !actor.Permissions.Contains(permission,
+                    StringComparer.Ordinal)))
+            {
+                return Results.Forbid();
+            }
+
+            role.Name = name;
+            role.NormalizedName = name;
+            role.Permissions = permissions.Distinct(StringComparer.Ordinal).ToArray();
+            session.Update(role);
+            await session.SaveChangesAsync(cancellationToken);
+            return Results.Ok(new RoleResponse(role.Id, role.Name, role.Permissions));
+        }
+        catch (IdentityValidationException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+        catch (DocumentAlreadyExistsException)
+        {
+            return Results.Conflict(new { error = "A role with that name already exists." });
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return Results.Conflict(new { error = "A role with that name already exists." });
+        }
+    }
+
+    private static async Task<IResult> DeleteRoleAsync(
+        Guid roleId,
+        HttpContext context,
+        IDocumentSession session,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var role = await session.LoadAsync<RoleDefinition>(roleId, cancellationToken);
+        if (role is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (IsBuiltInRole(actor!.OrganizationId, role))
+        {
+            return Results.Conflict(new { error = "Built-in roles cannot be deleted." });
+        }
+
+        if (await session.Query<UserAccount>().AnyAsync(user => user.RoleIds.Contains(roleId),
+                cancellationToken))
+        {
+            return Results.Conflict(new { error = "A role assigned to a user cannot be deleted." });
+        }
+
+        session.Delete(role);
+        await session.SaveChangesAsync(cancellationToken);
+        return Results.NoContent();
+    }
+
+    private static bool IsBuiltInRole(Guid organizationId, RoleDefinition role) =>
+        PermissionCatalog.BuiltInRoles.Keys.Any(name =>
+            role.Id == DomainIdentityConstants.RoleId(organizationId, name));
 
     private static async Task<IResult> GetUsersAsync(
         int? page, int? pageSize, IQuerySession session, CancellationToken cancellationToken)
@@ -267,8 +484,8 @@ public static class IdentityEndpoints
             var callerPermissions = actor!.Permissions.ToHashSet(StringComparer.Ordinal);
             foreach (var roleName in roleNames)
             {
-                var role = await session.LoadAsync<RoleDefinition>(
-                    DomainIdentityConstants.RoleId(actor.OrganizationId, roleName), cancellationToken);
+                var role = await FindRoleByNameAsync(session, actor.OrganizationId, roleName,
+                    cancellationToken);
                 if (role is null)
                 {
                     return Results.BadRequest(new { error = $"Role '{roleName}' does not exist." });
@@ -317,6 +534,139 @@ public static class IdentityEndpoints
         }
     }
 
+    private static async Task<IResult> UpdateUserAsync(
+        Guid userId, UpdateUserRequest request, HttpContext context, IDocumentSession session,
+        IPasswordHasher<UserAccount> passwordHasher, CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var account = await session.LoadAsync<UserAccount>(userId, cancellationToken);
+        if (account is null)
+        {
+            return Results.NotFound();
+        }
+
+        var callerPermissions = actor!.Permissions.ToHashSet(StringComparer.Ordinal);
+        var changed = false;
+        try
+        {
+            if (request.DisplayName is not null)
+            {
+                var displayName = IdentityRules.RequireDisplayName(request.DisplayName);
+                changed |= !string.Equals(account.DisplayName, displayName, StringComparison.Ordinal);
+                account.DisplayName = displayName;
+            }
+
+            if (request.Password is not null)
+            {
+                var password = IdentityRules.RequirePassword(request.Password);
+                account.PasswordHash = passwordHasher.HashPassword(account, password);
+                account.SecurityStamp = CreateSecurityStamp();
+                changed = true;
+            }
+
+            if (request.Roles is not null)
+            {
+                var roleNames = request.Roles.Select(IdentityRules.NormalizeRoleName)
+                    .Distinct(StringComparer.Ordinal).ToArray();
+                if (roleNames.Length == 0 || roleNames.Length > 10)
+                {
+                    return Results.BadRequest(new { error = "One to ten valid roles are required." });
+                }
+
+                var roleIds = new List<Guid>(roleNames.Length);
+                foreach (var roleName in roleNames)
+                {
+                    var role = await FindRoleByNameAsync(session, actor.OrganizationId, roleName,
+                        cancellationToken);
+                    if (role is null)
+                    {
+                        return Results.BadRequest(new { error = $"Role '{roleName}' does not exist." });
+                    }
+
+                    if (role.Permissions.Any(permission => !callerPermissions.Contains(permission)))
+                    {
+                        return Results.Forbid();
+                    }
+
+                    roleIds.Add(role.Id);
+                }
+
+                if (!account.RoleIds.OrderBy(value => value)
+                        .SequenceEqual(roleIds.OrderBy(value => value)))
+                {
+                    account.RoleIds = roleIds.ToArray();
+                    account.SecurityStamp = CreateSecurityStamp();
+                    changed = true;
+                }
+            }
+
+            if (!changed)
+            {
+                var permissions = (await IdentityRoleLookup.LoadAsync(session, account.RoleIds,
+                        cancellationToken)).SelectMany(role => role.Permissions)
+                    .Distinct(StringComparer.Ordinal).ToArray();
+                return Results.Ok(AccountResponse.From(account, permissions));
+            }
+
+            account.UpdatedAt = DateTimeOffset.UtcNow;
+            session.Update(account);
+            await session.SaveChangesAsync(cancellationToken);
+            var updatedPermissions = (await IdentityRoleLookup.LoadAsync(session, account.RoleIds,
+                    cancellationToken)).SelectMany(role => role.Permissions)
+                .Distinct(StringComparer.Ordinal).ToArray();
+            return Results.Ok(AccountResponse.From(account, updatedPermissions));
+        }
+        catch (IdentityValidationException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+    }
+
+    private static Task<IResult> DisableUserAsync(Guid userId, HttpContext context,
+        IDocumentSession session, CancellationToken cancellationToken) =>
+        ChangeUserStatusAsync(userId, AccountStatus.Disabled, context, session, cancellationToken);
+
+    private static Task<IResult> EnableUserAsync(Guid userId, HttpContext context,
+        IDocumentSession session, CancellationToken cancellationToken) =>
+        ChangeUserStatusAsync(userId, AccountStatus.Active, context, session, cancellationToken);
+
+    private static async Task<IResult> ChangeUserStatusAsync(
+        Guid userId, AccountStatus target, HttpContext context, IDocumentSession session,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        if (actor!.UserId == userId)
+        {
+            return Results.Conflict(new { error = "An administrator cannot change their own account status." });
+        }
+
+        var account = await session.LoadAsync<UserAccount>(userId, cancellationToken);
+        if (account is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (account.Status == target)
+        {
+            return Results.Ok(AccountResponse.From(account, []));
+        }
+
+        account.Status = target;
+        account.SecurityStamp = CreateSecurityStamp();
+        account.UpdatedAt = DateTimeOffset.UtcNow;
+        session.Update(account);
+        await session.SaveChangesAsync(cancellationToken);
+        return Results.Ok(AccountResponse.From(account, []));
+    }
+
     private static string RoleDisplayName(string normalizedName) => normalizedName switch
     {
         "ADMIN" => "Administrator",
@@ -326,6 +676,15 @@ public static class IdentityEndpoints
     };
 
     private static string CreateSecurityStamp() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+
+    private static async Task<RoleDefinition?> FindRoleByNameAsync(IQuerySession session,
+        Guid organizationId, string normalizedName, CancellationToken cancellationToken)
+    {
+        var deterministicId = DomainIdentityConstants.RoleId(organizationId, normalizedName);
+        return await session.LoadAsync<RoleDefinition>(deterministicId, cancellationToken) ??
+            await session.Query<RoleDefinition>().FirstOrDefaultAsync(role =>
+                role.NormalizedName == normalizedName, cancellationToken);
+    }
 
     private static bool FixedTimeEquals(string provided, string expected)
     {
@@ -348,9 +707,24 @@ public sealed record LoginRequest(string OrganizationCode, string Email, string 
 
 public sealed record CreateUserRequest(string Email, string DisplayName, string Password, string[]? Roles);
 
+public sealed record UpdateUserRequest(string? DisplayName, string? Password, string[]? Roles);
+
+public sealed record UpdateOrganizationRequest(string Name);
+
+public sealed record CreateRoleRequest(string Name, string[]? Permissions);
+
+public sealed record UpdateRoleRequest(string? Name, string[]? Permissions);
+
 public sealed record BootstrapResponse(Guid OrganizationId, Guid AdministratorId);
 
 public sealed record RoleResponse(Guid Id, string Name, string[] Permissions);
+
+public sealed record OrganizationResponse(Guid Id, string Code, string Name,
+    OrganizationStatus Status, DateTimeOffset CreatedAt)
+{
+    public static OrganizationResponse From(Organization organization) => new(organization.Id,
+        organization.Code, organization.Name, organization.Status, organization.CreatedAt);
+}
 
 public sealed record AccountResponse(
     Guid Id,

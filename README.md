@@ -4,19 +4,20 @@ RLMS kết hợp LMS và lớp học realtime, theo scope trong `GOAL.md`.
 
 ## Trạng thái triển khai
 
-Đang triển khai backend Foundation, Identity, Academics, Classroom, Communication và
-Assessment trên `module/be-realtime-overview`: ASP.NET Core,
-Marten/PostgreSQL, Wolverine, Redis, S3-compatible storage, cookie authentication,
-one-time bootstrap, login, organization-scoped sessions, CSRF, role/permission checks,
-health checks, course/class/enrollment/scheduling, LiveSession lifecycle, SignalR
-session groups, Redis presence, tenant-scoped chat/raise-hand, durable asynchronous
-attendance, versioned question bank, immutable published activities, event-sourced
-student attempts, answer save/change và submission, tenant-scoped Class Overview,
-on-demand Student Detail, snapshot-plus-delta SignalR updates và reconnect-safe
-subscription flow.
+Backend hiện bao phủ các business slice trong GOAL: Foundation, Identity, Academics,
+Classroom, Assessment, Learning, Communication và Reporting. Hệ thống dùng
+ASP.NET Core, Marten/PostgreSQL, Wolverine, Redis, S3-compatible storage, cookie
+authentication, CSRF, role/permission checks và tenant-scoped sessions. Các flow đã
+triển khai gồm course/class/enrollment/scheduling, LiveSession, attendance, chat,
+raise-hand, announcements/notifications, versioned question bank, immutable
+published activities, event-sourced student attempts, answer save/change/submit,
+realtime Class Overview + on-demand Student Detail, grading/gradebook, learning
+progress/resources, essay topic/group/report validation, signed file access và các
+read model báo cáo cơ bản.
 
-Frontend và các flow học tập hoàn chỉnh chưa được triển khai.
-Phase 5–8 và Golden Path A–F trong GOAL vẫn phải triển khai và verify.
+Repository hiện là backend/API và không chứa frontend web hoàn chỉnh. Media payload
+đi qua SFU bên ngoài; AI essay review/RAG, payment, certificate và full
+microservices migration vẫn nằm ngoài scope GOAL.
 
 ## Chạy local
 

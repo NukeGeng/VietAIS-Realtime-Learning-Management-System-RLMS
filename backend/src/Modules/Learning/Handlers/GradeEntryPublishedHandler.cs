@@ -37,6 +37,7 @@ public static class GradeEntryPublishedHandler
         progress.CourseId = message.CourseId;
         progress.Score = message.Score;
         progress.MaxScore = message.MaxScore;
+        progress.ResultsReleaseAt = message.ResultsReleaseAt;
         progress.Completion = message.MaxScore == 0m
             ? 0m
             : decimal.Round(message.Score * 100m / message.MaxScore, 2);

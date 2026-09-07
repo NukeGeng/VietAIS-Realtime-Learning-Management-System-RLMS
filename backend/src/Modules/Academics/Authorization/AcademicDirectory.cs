@@ -11,6 +11,9 @@ public interface IAcademicDirectory
     Task<bool> IsTeacherAssignedAsync(Guid organizationId, Guid classId, Guid teacherId,
         CancellationToken cancellationToken = default);
 
+    Task<bool> IsClassCreatorAsync(Guid organizationId, Guid classId, Guid userId,
+        CancellationToken cancellationToken = default);
+
     Task<bool> IsStudentEnrolledAsync(Guid organizationId, Guid classId, Guid studentId,
         CancellationToken cancellationToken = default);
 
@@ -18,7 +21,8 @@ public interface IAcademicDirectory
         CancellationToken cancellationToken = default);
 }
 
-public sealed record AcademicClassMember(Guid Id, Guid CourseId, string Code, string Name);
+public sealed record AcademicClassMember(Guid Id, Guid CourseId, string Code, string Name,
+    Guid CreatedBy, LearningClassStatus Status);
 
 public sealed record AcademicScheduleReference(Guid Id, Guid LearningClassId, Guid TeacherId,
     ScheduleStatus Status);
@@ -33,7 +37,7 @@ public sealed class AcademicDirectory(IDocumentStore store) : IAcademicDirectory
         return learningClass is null
             ? null
             : new AcademicClassMember(learningClass.Id, learningClass.CourseId,
-                learningClass.Code, learningClass.Name);
+                learningClass.Code, learningClass.Name, learningClass.CreatedBy, learningClass.Status);
     }
 
     public async Task<bool> IsTeacherAssignedAsync(
@@ -44,6 +48,19 @@ public sealed class AcademicDirectory(IDocumentStore store) : IAcademicDirectory
         return await session.Query<ClassTeacherAssignment>().AnyAsync(assignment =>
             assignment.LearningClassId == classId && assignment.TeacherId == teacherId &&
             assignment.Status == TeacherAssignmentStatus.Active, cancellationToken);
+    }
+
+    public async Task<bool> IsClassCreatorAsync(Guid organizationId, Guid classId, Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            return false;
+        }
+
+        await using var session = store.QuerySession(organizationId.ToString("D"));
+        return await session.Query<LearningClass>().AnyAsync(learningClass =>
+            learningClass.Id == classId && learningClass.CreatedBy == userId, cancellationToken);
     }
 
     public async Task<bool> IsStudentEnrolledAsync(

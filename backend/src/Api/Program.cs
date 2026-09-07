@@ -18,6 +18,10 @@ using LearningPlatform.Classroom.Api;
 using LearningPlatform.Classroom.Attendance;
 using LearningPlatform.Communication;
 using LearningPlatform.Communication.Api;
+using LearningPlatform.Communication.Domain;
+using LearningPlatform.Identity.Domain;
+using LearningPlatform.Reporting;
+using LearningPlatform.Reporting.Api;
 using Wolverine;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,6 +34,7 @@ builder.Services.AddAssessmentModule();
 builder.Services.AddClassroomModule();
 builder.Services.AddCommunicationModule();
 builder.Services.AddLearningModule();
+builder.Services.AddReportingModule();
 builder.Services.AddSignalR(options => options.EnableDetailedErrors = false);
 builder.AddInfrastructure();
 builder.UseWolverine(options =>
@@ -38,15 +43,27 @@ builder.UseWolverine(options =>
     options.Discovery.IncludeAssembly(typeof(ClassroomModuleRegistration).Assembly);
     options.Discovery.IncludeAssembly(typeof(AssessmentModuleRegistration).Assembly);
     options.Discovery.IncludeAssembly(typeof(LearningModuleRegistration).Assembly);
+    options.Discovery.IncludeAssembly(typeof(ReportingModuleRegistration).Assembly);
+    options.Discovery.IncludeAssembly(typeof(CommunicationModuleRegistration).Assembly);
     options.LocalQueue("attendance").Sequential();
     options.PublishMessage<LiveSessionParticipantJoined>().ToLocalQueue("attendance");
     options.PublishMessage<LiveSessionParticipantLeft>().ToLocalQueue("attendance");
     options.PublishMessage<LiveSessionEnded>().ToLocalQueue("attendance");
+    options.PublishMessage<LiveSessionEndedForReporting>().ToLocalQueue("reporting-projection");
     options.LocalQueue("activity-projection").Sequential();
     options.PublishMessage<StudentActivityChanged>().ToLocalQueue("activity-projection");
     options.LocalQueue("learning-progress").Sequential();
     options.PublishMessage<LearningPlatform.Learning.Contracts.GradeEntryPublished>()
         .ToLocalQueue("learning-progress");
+    options.PublishMessage<LearningPlatform.Learning.Contracts.GradeEntryPublishedForReporting>()
+        .ToLocalQueue("reporting-projection");
+    options.PublishMessage<LearningPlatform.Learning.Contracts.LessonProgressChangedForReporting>()
+        .ToLocalQueue("reporting-projection");
+    options.LocalQueue("reporting-projection").Sequential();
+    options.LocalQueue("notifications").Sequential();
+    options.PublishMessage<NotificationRequested>().ToLocalQueue("notifications");
+    options.PublishMessage<ClassNotificationRequested>().ToLocalQueue("notifications");
+    options.PublishMessage<AnnouncementPublished>().ToLocalQueue("notifications");
 });
 
 var app = builder.Build();
@@ -75,12 +92,14 @@ app.MapAcademicEndpoints();
 app.MapClassEndpoints();
 app.MapAssessmentEndpoints();
 app.MapLearningEndpoints();
+app.MapReportingEndpoints();
 app.MapHub<AssessmentRealtimeHub>("/hubs/assessment")
     .RequireAuthorization(IdentityAuthorizationPolicies.SubmitAssessmentActivities);
 app.MapLiveSessionEndpoints();
 app.MapAttendanceEndpoints();
 app.MapRaiseHandEndpoints();
 app.MapChatEndpoints();
+app.MapAnnouncementEndpoints();
 app.Run();
 
 public partial class Program;

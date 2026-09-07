@@ -28,6 +28,14 @@ public static class GradingEndpoints
         endpoints.MapPost("/api/assessment/grade-entries/{gradeEntryId:guid}/publish",
                 PublishGradeEntryAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.GradeAssessmentSubmissions);
+        endpoints.MapPut("/api/assessment/grade-items/{gradeItemId:guid}", UpdateGradeItemAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageGradebook);
+        endpoints.MapPost("/api/assessment/grade-entries/{gradeEntryId:guid}/adjust",
+                AdjustGradeEntryAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageGradebook);
+        endpoints.MapGet("/api/assessment/grade-entries/{gradeEntryId:guid}/adjustments",
+                ListGradeAdjustmentsAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageGradebook);
         endpoints.MapGet("/api/assessment/activities/{activityId:guid}/result", GetStudentResultAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ReadAssessmentResults);
         endpoints.MapGet("/api/assessment/classes/{classId:guid}/gradebook", GetTeacherGradebookAsync)
@@ -92,7 +100,7 @@ public static class GradingEndpoints
         {
             var criteria = (request.Criteria ?? []).Select((criterion, index) => new RubricCriterion(
                     criterion.Id == Guid.Empty ? Guid.NewGuid() : criterion.Id,
-                    criterion.Name.Trim(), criterion.Description?.Trim() ?? "", criterion.MaxPoints,
+                    criterion.Name?.Trim() ?? "", criterion.Description?.Trim() ?? "", criterion.MaxPoints,
                     criterion.Order < 0 ? index : criterion.Order))
                 .ToArray();
             GradingRules.ValidateRubric(criteria);
@@ -111,6 +119,10 @@ public static class GradingEndpoints
                     CreatedAt = now
                 };
                 session.Insert(rubric);
+                rubric.Criteria = criteria;
+                rubric.UpdatedAt = now;
+                await session.SaveChangesAsync(cancellationToken);
+                return Results.Ok(RubricResponse.From(rubric));
             }
 
             rubric.Criteria = criteria;
@@ -329,10 +341,167 @@ public static class GradingEndpoints
                 new GradeEntryPublished(entry.OrganizationId, entry.LearningClassId,
                     learningClass?.CourseId, entry.StudentId, entry.ActivityId, entry.GradeItemId,
                     entry.Id, activity.Title, entry.AttemptNumber, entry.Score, entry.MaxScore,
-                    entry.Version, now));
+                    entry.Version, now, activity.ExamPolicy?.ResultsReleaseAt));
         }
 
         return Results.Ok(GradeEntryResponse.From(entry));
+    }
+
+    private static async Task<IResult> UpdateGradeItemAsync(Guid gradeItemId,
+        UpdateGradeItemRequest request, HttpContext context, IDocumentSession session,
+        IAcademicDirectory academics, CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var item = await session.LoadAsync<GradeItem>(gradeItemId, cancellationToken);
+        if (item is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(actor!, item.LearningClassId, academics, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        if (item.Status == GradeItemStatus.Archived)
+        {
+            return Results.Conflict(new { error = "An archived grade item cannot be changed." });
+        }
+
+        try
+        {
+            item.Weight = GradingRules.RequireWeight(request.Weight);
+            item.UpdatedAt = DateTimeOffset.UtcNow;
+            session.Store(item);
+            await session.SaveChangesAsync(cancellationToken);
+            return Results.Ok(GradebookItemResponse.From(item));
+        }
+        catch (AssessmentValidationException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+    }
+
+    private static async Task<IResult> AdjustGradeEntryAsync(Guid gradeEntryId,
+        AdjustGradeEntryRequest request, HttpContext context, IDocumentSession session,
+        IAcademicDirectory academics, CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var entry = await session.LoadAsync<GradeEntry>(gradeEntryId, cancellationToken);
+        if (entry is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(actor!, entry.LearningClassId, academics, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        if (entry.Status != GradeEntryStatus.Published)
+        {
+            return Results.Conflict(new { error = "Only a published grade can be adjusted." });
+        }
+
+        if (request.Score < 0m || request.Score > entry.MaxScore)
+        {
+            return Results.BadRequest(new { error = "The adjusted score must be within the grade max score." });
+        }
+
+        string reason;
+        string? feedback;
+        try
+        {
+            reason = GradingRules.RequireAdjustmentReason(request.Reason);
+            feedback = GradingRules.NormalizeFeedback(request.Feedback);
+        }
+        catch (AssessmentValidationException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var previousScore = entry.Score;
+        var previousFeedback = entry.Feedback;
+        entry.Score = request.Score;
+        entry.Feedback = feedback;
+        entry.Source = GradeSource.Manual;
+        entry.IsComplete = true;
+        entry.Status = GradeEntryStatus.Draft;
+        entry.GradedBy = actor!.UserId;
+        entry.GradedAt = now;
+        entry.PublishedAt = null;
+        entry.Passed = null;
+        if (entry.ActivityId != Guid.Empty)
+        {
+            var activity = await session.LoadAsync<AssessmentActivity>(entry.ActivityId,
+                cancellationToken);
+            if (activity is not null)
+            {
+                entry.Passed = activity.ExamPolicy?.PassingScore is { } passingScore
+                    ? entry.MaxScore != 0m && entry.Score * 100m / entry.MaxScore >= passingScore
+                    : null;
+            }
+        }
+
+        entry.Version++;
+        entry.UpdatedAt = now;
+        session.Store(entry);
+        session.Insert(new GradeAdjustment
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = entry.OrganizationId,
+            LearningClassId = entry.LearningClassId,
+            GradeEntryId = entry.Id,
+            GradeItemId = entry.GradeItemId,
+            StudentId = entry.StudentId,
+            PreviousScore = previousScore,
+            NewScore = entry.Score,
+            MaxScore = entry.MaxScore,
+            PreviousFeedback = previousFeedback,
+            NewFeedback = entry.Feedback,
+            Reason = reason,
+            AdjustedBy = actor.UserId,
+            AdjustedAt = now,
+            GradeVersion = entry.Version
+        });
+        await session.SaveChangesAsync(cancellationToken);
+        return Results.Ok(GradeEntryResponse.From(entry));
+    }
+
+    private static async Task<IResult> ListGradeAdjustmentsAsync(Guid gradeEntryId,
+        HttpContext context, IQuerySession session, IAcademicDirectory academics,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var entry = await session.LoadAsync<GradeEntry>(gradeEntryId, cancellationToken);
+        if (entry is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await CanManageClassAsync(actor!, entry.LearningClassId, academics, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        var adjustments = await session.Query<GradeAdjustment>()
+            .Where(adjustment => adjustment.GradeEntryId == gradeEntryId)
+            .OrderByDescending(adjustment => adjustment.AdjustedAt)
+            .ToListAsync(cancellationToken);
+        return Results.Ok(adjustments.Select(GradeAdjustmentResponse.From));
     }
 
     private static async Task<IResult> GetStudentResultAsync(Guid activityId, HttpContext context,
@@ -348,6 +517,12 @@ public static class GradingEndpoints
                 activity.LearningClassId, actor.UserId, cancellationToken))
         {
             return Results.Forbid();
+        }
+
+        if (!AssessmentRules.IsResultsReleased(activity, DateTimeOffset.UtcNow))
+        {
+            // Keep unreleased exam results indistinguishable from a missing result.
+            return Results.NotFound();
         }
 
         var entry = (await session.Query<GradeEntry>()
@@ -407,14 +582,32 @@ public static class GradingEndpoints
             .OrderBy(activity => activity.CreatedAt)
             .ToListAsync(cancellationToken);
         var activityIds = activities.Select(activity => activity.Id).ToArray();
+        var essays = await session.Query<EssayAssignment>()
+            .Where(assignment => assignment.LearningClassId == classId &&
+                assignment.Status != EssayAssignmentStatus.Draft)
+            .OrderBy(assignment => assignment.CreatedAt)
+            .ToListAsync(cancellationToken);
+        var essayAssignmentIds = essays.Select(assignment => assignment.Id).ToArray();
         var items = await session.Query<GradeItem>()
-            .Where(item => item.LearningClassId == classId && activityIds.Contains(item.ActivityId))
+            .Where(item => item.LearningClassId == classId &&
+                (activityIds.Contains(item.ActivityId) ||
+                 item.EssayAssignmentId != null && essayAssignmentIds.Contains(item.EssayAssignmentId.Value)))
             .OrderBy(item => item.CreatedAt)
             .ToListAsync(cancellationToken);
         var entries = await session.Query<GradeEntry>()
-            .Where(entry => entry.LearningClassId == classId && activityIds.Contains(entry.ActivityId) &&
+            .Where(entry => entry.LearningClassId == classId &&
+                (activityIds.Contains(entry.ActivityId) ||
+                 entry.EssayAssignmentId != null && essayAssignmentIds.Contains(entry.EssayAssignmentId.Value)) &&
                 (studentFilter == null || entry.StudentId == actor.UserId))
             .ToListAsync(cancellationToken);
+        if (!isTeacher)
+        {
+            var activityById = activities.ToDictionary(activity => activity.Id);
+            entries = entries.Where(entry => !activityById.TryGetValue(entry.ActivityId,
+                    out var activity) || AssessmentRules.IsResultsReleased(activity,
+                    DateTimeOffset.UtcNow))
+                .ToList();
+        }
         var itemResponses = items.Select(GradebookItemResponse.From).ToArray();
         Guid[] studentIds;
         if (studentFilter is null)
@@ -442,9 +635,20 @@ public static class GradingEndpoints
                 return GradebookCellResponse.From(item, entry);
             }).ToArray();
             var visible = cells.Where(cell => cell.Score is not null).ToArray();
-            var average = visible.Length == 0 ? (decimal?)null : visible.Sum(cell => cell.Score!.Value) /
-                visible.Sum(cell => cell.MaxScore);
-            return new GradebookStudentRowResponse(studentId, average, cells);
+            var visibleMaxScore = visible.Sum(cell => cell.MaxScore);
+            var average = visible.Length == 0 || visibleMaxScore == 0m
+                ? (decimal?)null
+                : visible.Sum(cell => cell.Score!.Value) / visibleMaxScore;
+            var weightTotal = visible.Sum(cell => cell.Weight);
+            var weightedAverage = weightTotal <= 0m
+                ? (decimal?)null
+                : visible.Sum(cell => cell.MaxScore == 0m
+                    ? 0m
+                    : cell.Score!.Value / cell.MaxScore * cell.Weight) / weightTotal;
+            decimal? finalScore = weightedAverage is { } weighted
+                ? decimal.Round(weighted * 100m, 2)
+                : null;
+            return new GradebookStudentRowResponse(studentId, average, weightedAverage, finalScore, cells);
         }).ToArray();
         return Results.Ok(new GradebookResponse(classId, itemResponses, rows));
     }
@@ -453,6 +657,8 @@ public static class GradingEndpoints
         IAcademicDirectory academics, CancellationToken cancellationToken)
     {
         return actor.Permissions.Contains(PermissionCatalog.ManageOrganizations, StringComparer.Ordinal) ||
+            await academics.IsClassCreatorAsync(actor.OrganizationId, classId, actor.UserId,
+                cancellationToken) ||
             await academics.IsTeacherAssignedAsync(actor.OrganizationId, classId, actor.UserId,
                 cancellationToken);
     }
@@ -500,20 +706,37 @@ public sealed record StudentResultResponse(Guid ActivityId, Guid GradeEntryId, d
 public sealed record GradebookResponse(Guid LearningClassId, GradebookItemResponse[] Items,
     GradebookStudentRowResponse[] Students);
 
-public sealed record GradebookItemResponse(Guid GradeItemId, Guid ActivityId, string Title,
-    decimal MaxScore, decimal Weight)
+public sealed record GradebookItemResponse(Guid GradeItemId, Guid ActivityId, Guid? EssayAssignmentId,
+    string Title, decimal MaxScore, decimal Weight)
 {
     public static GradebookItemResponse From(GradeItem item) => new(item.Id, item.ActivityId,
-        item.Title, item.MaxScore, item.Weight);
+        item.EssayAssignmentId, item.Title, item.MaxScore, item.Weight);
 }
 
 public sealed record GradebookStudentRowResponse(Guid StudentId, decimal? Average,
-    GradebookCellResponse[] Entries);
+    decimal? WeightedAverage, decimal? FinalScore, GradebookCellResponse[] Entries);
 
 public sealed record GradebookCellResponse(Guid GradeItemId, decimal? Score, decimal MaxScore,
-    GradeEntryStatus? Status, string? Feedback, int? Version)
+    decimal Weight, GradeEntryStatus? Status, string? Feedback, int? Version)
 {
     public static GradebookCellResponse From(GradeItem item, GradeEntry? entry) =>
-        entry is null ? new(item.Id, null, item.MaxScore, null, null, null) :
-        new(item.Id, entry.Score, entry.MaxScore, entry.Status, entry.Feedback, entry.Version);
+        entry is null ? new(item.Id, null, item.MaxScore, item.Weight, null, null, null) :
+        new(item.Id, entry.Score, entry.MaxScore, item.Weight, entry.Status, entry.Feedback,
+            entry.Version);
+}
+
+public sealed record UpdateGradeItemRequest(decimal Weight);
+
+public sealed record AdjustGradeEntryRequest(decimal Score, string? Feedback, string? Reason);
+
+public sealed record GradeAdjustmentResponse(Guid Id, Guid GradeEntryId, Guid StudentId,
+    decimal PreviousScore, decimal NewScore, decimal MaxScore, string? PreviousFeedback,
+    string? NewFeedback, string Reason, Guid AdjustedBy, DateTimeOffset AdjustedAt,
+    int GradeVersion)
+{
+    public static GradeAdjustmentResponse From(GradeAdjustment adjustment) => new(adjustment.Id,
+        adjustment.GradeEntryId, adjustment.StudentId, adjustment.PreviousScore,
+        adjustment.NewScore, adjustment.MaxScore, adjustment.PreviousFeedback,
+        adjustment.NewFeedback, adjustment.Reason, adjustment.AdjustedBy, adjustment.AdjustedAt,
+        adjustment.GradeVersion);
 }

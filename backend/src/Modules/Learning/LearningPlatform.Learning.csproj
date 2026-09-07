@@ -4,6 +4,7 @@
     <PackageReference Include="Marten" />
     <PackageReference Include="WolverineFx" />
     <ProjectReference Include="../Academics/LearningPlatform.Academics.csproj" />
+    <ProjectReference Include="../Classroom/LearningPlatform.Classroom.csproj" />
     <ProjectReference Include="../Identity/LearningPlatform.Identity.csproj" />
   </ItemGroup>
 </Project>

@@ -87,6 +87,104 @@ public sealed class IdentityTests(FoundationFixture fixture) : IClassFixture<Fou
         FoundationFixture.SetCookies(teacherClient, teacherCookie);
         Assert.Equal(HttpStatusCode.Forbidden, (await teacherClient.GetAsync("/api/identity/users")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await teacherClient.GetAsync("/api/identity/roles")).StatusCode);
+
+        using var update = await SendWithCsrfAsync(adminClient, adminCookie, HttpMethod.Put,
+            $"/api/identity/users/{teacher!.Id:D}", new
+            {
+                DisplayName = "Updated Teacher",
+                Password = "updated teacher password",
+                Roles = new[] { "TEACHER" }
+            });
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+
+        using var disable = await PostWithCsrfAsync(adminClient, adminCookie,
+            $"/api/identity/users/{teacher.Id:D}/disable", new { });
+        Assert.Equal(HttpStatusCode.OK, disable.StatusCode);
+        using var disabledLogin = fixture.Client();
+        using var disabledResponse = await LoginResponseAsync(disabledLogin, "RLMS-TEST",
+            "teacher@rlms.test", "updated teacher password");
+        Assert.Equal(HttpStatusCode.Unauthorized, disabledResponse.StatusCode);
+
+        using var enable = await PostWithCsrfAsync(adminClient, adminCookie,
+            $"/api/identity/users/{teacher.Id:D}/enable", new { });
+        Assert.Equal(HttpStatusCode.OK, enable.StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_can_manage_custom_roles_without_escalating_permissions()
+    {
+        await fixture.EnsureBootstrappedAsync();
+        using var adminClient = fixture.Client();
+        var adminCookie = await LoginAsync(adminClient, "admin@rlms.test",
+            "correct horse battery staple");
+
+        using var invalid = await PostWithCsrfAsync(adminClient, adminCookie, "/api/identity/roles",
+            new
+            {
+                Name = "Content Reviewer",
+                Permissions = new[] { "identity.permission.unknown" }
+            });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+
+        using var create = await PostWithCsrfAsync(adminClient, adminCookie, "/api/identity/roles",
+            new
+            {
+                Name = "Content Reviewer",
+                Permissions = new[] { PermissionCatalog.ReadReports }
+            });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var role = await create.Content.ReadFromJsonAsync<RoleResponse>();
+        Assert.NotNull(role);
+        Assert.Contains(PermissionCatalog.ReadReports, role.Permissions);
+
+        using var rename = await SendWithCsrfAsync(adminClient, adminCookie, HttpMethod.Put,
+            $"/api/identity/roles/{role!.Id:D}", new
+            {
+                Name = "Content Moderator",
+                Permissions = new[] { PermissionCatalog.ReadReports, PermissionCatalog.ReadNotifications }
+            });
+        Assert.Equal(HttpStatusCode.OK, rename.StatusCode);
+        var renamed = await rename.Content.ReadFromJsonAsync<RoleResponse>();
+        Assert.Equal("CONTENT MODERATOR", renamed!.Name);
+
+        using var protectedBuiltIn = await SendWithCsrfAsync(adminClient, adminCookie, HttpMethod.Put,
+            $"/api/identity/roles/{IdentityConstants.RoleId(
+                (await fixture.EnsureBootstrappedAsync()).OrganizationId, "ADMIN"):D}", new
+            {
+                Name = "Administrator Copy",
+                Permissions = new[] { PermissionCatalog.ManageUsers }
+            });
+        Assert.Equal(HttpStatusCode.Conflict, protectedBuiltIn.StatusCode);
+
+        var userEmail = $"custom-role-{Guid.NewGuid():N}@rlms.test";
+        using var createUser = await PostWithCsrfAsync(adminClient, adminCookie, "/api/identity/users",
+            new
+            {
+                Email = userEmail,
+                DisplayName = "Custom Role User",
+                Password = "custom role user password",
+                Roles = new[] { renamed.Name }
+            });
+        Assert.Equal(HttpStatusCode.Created, createUser.StatusCode);
+        var user = await createUser.Content.ReadFromJsonAsync<AccountResponse>();
+        Assert.Contains(PermissionCatalog.ReadNotifications, user!.Permissions);
+
+        using var assignedDelete = await SendWithCsrfAsync(adminClient, adminCookie, HttpMethod.Delete,
+            $"/api/identity/roles/{renamed.Id:D}", new { });
+        Assert.Equal(HttpStatusCode.Conflict, assignedDelete.StatusCode);
+
+        using var moveUser = await SendWithCsrfAsync(adminClient, adminCookie, HttpMethod.Put,
+            $"/api/identity/users/{user.Id:D}", new
+            {
+                DisplayName = (string?)null,
+                Password = (string?)null,
+                Roles = new[] { "STUDENT" }
+            });
+        Assert.Equal(HttpStatusCode.OK, moveUser.StatusCode);
+
+        using var delete = await SendWithCsrfAsync(adminClient, adminCookie, HttpMethod.Delete,
+            $"/api/identity/roles/{renamed.Id:D}", new { });
+        Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
     }
 
     [Fact]
@@ -157,11 +255,21 @@ public sealed class IdentityTests(FoundationFixture fixture) : IClassFixture<Fou
 
     private async Task<HttpResponseMessage> PostWithCsrfAsync(HttpClient client, string authCookie, string path, object body)
     {
+        return await SendWithCsrfAsync(client, authCookie, HttpMethod.Post, path, body);
+    }
+
+    private async Task<HttpResponseMessage> SendWithCsrfAsync(HttpClient client, string authCookie,
+        HttpMethod method, string path, object body)
+    {
         FoundationFixture.SetCookies(client, authCookie);
         var csrf = await fixture.IssueCsrfAsync(client);
         FoundationFixture.SetCookies(client, authCookie, csrf.Cookie);
         client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
         client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf.Token);
-        return await client.PostAsJsonAsync(path, body);
+        using var request = new HttpRequestMessage(method, path)
+        {
+            Content = JsonContent.Create(body)
+        };
+        return await client.SendAsync(request);
     }
 }

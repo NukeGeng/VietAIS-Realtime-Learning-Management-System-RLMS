@@ -25,32 +25,34 @@ public static class ActivityProjectionHandler
             : decimal.Round(state.AnsweredCount * 100m / totalQuestions, 2);
         var existingDetail = await session.LoadAsync<StudentAttemptDetailView>(state.AttemptId,
             cancellationToken);
-        if (existingDetail is not null && existingDetail.Version >= state.Version)
+        var detailNeedsUpdate = existingDetail is null || existingDetail.Version < state.Version;
+        if (detailNeedsUpdate)
         {
-            return;
+            var detail = new StudentAttemptDetailView
+            {
+                Id = state.AttemptId,
+                OrganizationId = state.OrganizationId,
+                StudentId = state.StudentId,
+                AttemptNumber = state.AttemptNumber,
+                ActivityId = state.ActivityId,
+                LearningClassId = state.LearningClassId,
+                LiveSessionId = state.LiveSessionId,
+                CurrentQuestionId = state.CurrentQuestionId,
+                Status = state.Status,
+                Answers = new Dictionary<Guid, string>(state.Answers),
+                HelpRequested = state.HelpRequested,
+                HelpRequestedAt = state.HelpRequestedAt,
+                HelpAcknowledgedAt = state.HelpAcknowledgedAt,
+                AnsweredCount = state.AnsweredCount,
+                TotalQuestions = totalQuestions,
+                Progress = progress,
+                StartedAt = state.StartedAt,
+                LastActivityAt = state.LastActivityAt,
+                SubmittedAt = state.SubmittedAt,
+                Version = state.Version
+            };
+            session.Store(detail);
         }
-
-        var detail = new StudentAttemptDetailView
-        {
-            Id = state.AttemptId,
-            OrganizationId = state.OrganizationId,
-            StudentId = state.StudentId,
-            AttemptNumber = state.AttemptNumber,
-            ActivityId = state.ActivityId,
-            LearningClassId = state.LearningClassId,
-            LiveSessionId = state.LiveSessionId,
-            CurrentQuestionId = state.CurrentQuestionId,
-            Status = state.Status,
-            Answers = new Dictionary<Guid, string>(state.Answers),
-            AnsweredCount = state.AnsweredCount,
-            TotalQuestions = totalQuestions,
-            Progress = progress,
-            StartedAt = state.StartedAt,
-            LastActivityAt = state.LastActivityAt,
-            SubmittedAt = state.SubmittedAt,
-            Version = state.Version
-        };
-        session.Store(detail);
 
         var overviewId = AssessmentConstants.ClassOverviewViewId(state.LearningClassId,
             state.ActivityId);
@@ -62,6 +64,7 @@ public static class ActivityProjectionHandler
                 LearningClassId = state.LearningClassId,
                 ActivityId = state.ActivityId
             };
+        overview.Students ??= [];
         var student = overview.Students.FirstOrDefault(item => item.StudentId == state.StudentId);
         var overviewChanged = false;
         if (student is null)
@@ -69,16 +72,52 @@ public static class ActivityProjectionHandler
             student = new ClassOverviewStudent { StudentId = state.StudentId };
             overview.Students.Add(student);
         }
-        if (student.Version < state.Version || student.AttemptId == Guid.Empty)
+        if (student.AttemptNumber < state.AttemptNumber ||
+            student.AttemptNumber == state.AttemptNumber &&
+            (student.Version < state.Version || student.AttemptId == Guid.Empty))
         {
+            var previousAnswered = (student.AnsweredQuestionIds ??
+                existingDetail?.Answers.Keys.ToArray() ?? []).ToHashSet();
+            var currentAnswered = state.Answers.Keys.ToHashSet();
+            var previousCurrentQuestion = student.CurrentQuestionId;
+            EnsureQuestionProgress(overview, activity);
+            foreach (var removedQuestionId in previousAnswered.Except(currentAnswered))
+            {
+                AdjustAnsweredCount(overview, removedQuestionId, -1);
+            }
+
+            foreach (var addedQuestionId in currentAnswered.Except(previousAnswered))
+            {
+                AdjustAnsweredCount(overview, addedQuestionId, 1);
+            }
+
+            if (previousCurrentQuestion != state.CurrentQuestionId ||
+                CountsAsCurrent(student.Status) != CountsAsCurrent(state.Status))
+            {
+                if (previousCurrentQuestion is { } previousQuestionId &&
+                    CountsAsCurrent(student.Status))
+                {
+                    AdjustCurrentCount(overview, previousQuestionId, -1);
+                }
+
+                if (state.CurrentQuestionId is { } nextCurrentQuestionId &&
+                    CountsAsCurrent(state.Status))
+                {
+                    AdjustCurrentCount(overview, nextCurrentQuestionId, 1);
+                }
+            }
+
             student.AttemptId = state.AttemptId;
+            student.AttemptNumber = state.AttemptNumber;
             student.CurrentQuestionId = state.CurrentQuestionId;
             student.AnsweredCount = state.AnsweredCount;
             student.TotalQuestions = totalQuestions;
             student.Progress = progress;
             student.Status = state.Status;
             student.LastActivityAt = state.LastActivityAt;
+            student.HelpRequested = state.HelpRequested;
             student.Version = state.Version;
+            student.AnsweredQuestionIds = currentAnswered.Order().ToArray();
             overview.Version = Math.Max(overview.Version, state.Version);
             overview.UpdatedAt = DateTimeOffset.UtcNow;
             overviewChanged = true;
@@ -97,12 +136,56 @@ public static class ActivityProjectionHandler
 
         var overviewDelta = new ActivityOverviewDelta(state.StudentId, state.AttemptId,
             state.CurrentQuestionId, state.AnsweredCount, totalQuestions, progress, state.Status,
-            state.LastActivityAt, state.Version);
+            state.LastActivityAt, state.Version, state.AttemptNumber,
+            overview.QuestionProgress.OrderBy(value => value.QuestionId)
+                .Select(value => new ActivityQuestionProgressDelta(value.QuestionId,
+                    value.AnsweredStudentCount, value.CurrentStudentCount)).ToArray());
         var questionId = message.QuestionId;
         var detailDelta = new ActivityDetailDelta(state.AttemptId, state.Version, message.ChangeType,
             questionId, message.AnswerValue, state.CurrentQuestionId, state.AnsweredCount,
-            state.Status, state.LastActivityAt);
+            state.Status, state.LastActivityAt, state.HelpRequested);
         await notifier.NotifyAsync(message.OrganizationId, state.LearningClassId, state.ActivityId,
             state.AttemptId, overviewDelta, detailDelta, cancellationToken);
     }
+
+    private static void EnsureQuestionProgress(ClassOverviewView overview,
+        AssessmentActivity activity)
+    {
+        overview.QuestionProgress ??= [];
+        var known = overview.QuestionProgress.Select(value => value.QuestionId)
+            .ToHashSet();
+        foreach (var question in activity.Questions)
+        {
+            if (!known.Contains(question.Id))
+            {
+                overview.QuestionProgress.Add(new ClassOverviewQuestionProgress
+                {
+                    QuestionId = question.Id
+                });
+            }
+        }
+    }
+
+    private static void AdjustAnsweredCount(ClassOverviewView overview, Guid questionId,
+        int delta)
+    {
+        var progress = overview.QuestionProgress.FirstOrDefault(value => value.QuestionId == questionId);
+        if (progress is not null)
+        {
+            progress.AnsweredStudentCount = Math.Max(0, progress.AnsweredStudentCount + delta);
+        }
+    }
+
+    private static void AdjustCurrentCount(ClassOverviewView overview, Guid questionId, int delta)
+    {
+        var progress = overview.QuestionProgress.FirstOrDefault(value => value.QuestionId == questionId);
+        if (progress is not null)
+        {
+            progress.CurrentStudentCount = Math.Max(0, progress.CurrentStudentCount + delta);
+        }
+    }
+
+    private static bool CountsAsCurrent(StudentActivityStatus? status) =>
+        status is StudentActivityStatus.InProgress or StudentActivityStatus.Idle or
+            StudentActivityStatus.Paused;
 }

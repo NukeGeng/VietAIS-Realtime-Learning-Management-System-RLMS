@@ -24,6 +24,7 @@ public sealed class GradeItem
     public Guid OrganizationId { get; set; }
     public Guid LearningClassId { get; set; }
     public Guid ActivityId { get; set; }
+    public Guid? EssayAssignmentId { get; set; }
     public Guid? CourseId { get; set; }
     public string Title { get; set; } = "";
     public decimal MaxScore { get; set; }
@@ -39,6 +40,8 @@ public sealed class GradeEntry
     public Guid OrganizationId { get; set; }
     public Guid LearningClassId { get; set; }
     public Guid ActivityId { get; set; }
+    public Guid? EssayAssignmentId { get; set; }
+    public Guid? EssayGroupId { get; set; }
     public Guid GradeItemId { get; set; }
     public Guid StudentId { get; set; }
     public Guid? SourceSubmissionId { get; set; }
@@ -56,6 +59,30 @@ public sealed class GradeEntry
     public bool? Passed { get; set; }
     public int Version { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// Immutable audit record for a post-grading score adjustment. The grade entry
+/// itself is moved back to draft and must be published again before students see
+/// the adjusted result.
+/// </summary>
+public sealed class GradeAdjustment
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid LearningClassId { get; set; }
+    public Guid GradeEntryId { get; set; }
+    public Guid GradeItemId { get; set; }
+    public Guid StudentId { get; set; }
+    public decimal PreviousScore { get; set; }
+    public decimal NewScore { get; set; }
+    public decimal MaxScore { get; set; }
+    public string? PreviousFeedback { get; set; }
+    public string? NewFeedback { get; set; }
+    public string Reason { get; set; } = "";
+    public Guid AdjustedBy { get; set; }
+    public DateTimeOffset AdjustedAt { get; set; }
+    public int GradeVersion { get; set; }
 }
 
 public sealed record GradeQuestionResult(Guid QuestionId, decimal Score, decimal MaxScore,

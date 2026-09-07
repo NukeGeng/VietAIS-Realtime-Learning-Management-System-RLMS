@@ -4,9 +4,9 @@ namespace LearningPlatform.Academics.Domain;
 
 public static class AcademicRules
 {
-    public static string NormalizeCourseCode(string value)
+    public static string NormalizeCourseCode(string? value)
     {
-        var code = value.Trim().Normalize(NormalizationForm.FormKC).ToUpperInvariant();
+        var code = (value ?? "").Trim().Normalize(NormalizationForm.FormKC).ToUpperInvariant();
         if (code.Length is < 2 or > 32 || code.Any(c => !(char.IsLetterOrDigit(c) || c is '-' or '_')))
         {
             throw new AcademicValidationException(
@@ -16,9 +16,9 @@ public static class AcademicRules
         return code;
     }
 
-    public static string RequireTitle(string value)
+    public static string RequireTitle(string? value)
     {
-        var title = value.Trim().Normalize(NormalizationForm.FormKC);
+        var title = (value ?? "").Trim().Normalize(NormalizationForm.FormKC);
         if (title.Length is < 1 or > 200)
         {
             throw new AcademicValidationException("Title must be between 1 and 200 characters.");

@@ -119,6 +119,11 @@
         "resolved": "8.6.5",
         "contentHash": "t+sUVrIwvo7UmsgHGgOG9F0GDZSRIm47u2ylH17Gvcv1q5hNEwgD5GoBlFyc0kh/pebmPyrAgvGsR/65ZBaXlg=="
       },
+      "RESPite": {
+        "type": "Transitive",
+        "resolved": "3.1.31",
+        "contentHash": "u+MFK6FzGWngKaY3wJ/V9vQSVe/NSqpk0IYYw6ACwmlPq5eTnsyZGlzEa3YMifJGVs3omrl5MkgigB1jZYNnGg=="
+      },
       "Spectre.Console": {
         "type": "Transitive",
         "resolved": "0.55.0",
@@ -131,6 +136,11 @@
         "type": "Transitive",
         "resolved": "0.55.0",
         "contentHash": "GIfgOvuF8MpU52bprhwtDEtx0gmVIGOepM8bw0lH/TSMD0rg1Xp+5Y53kPG8rFVdcpbNANlhDQ5mEVVPO3/2Tg=="
+      },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "10.0.5",
+        "contentHash": "8IBJWcCT9+e4Bmevm4T7+fQEiAh133KGiz4oiVTgJckd3Q76OFdR1falgn9lpz7+C4HJvogCDJeAa2QmvbeVtg=="
       },
       "Weasel.Core": {
         "type": "Transitive",
@@ -165,7 +175,18 @@
         "type": "Project",
         "dependencies": {
           "LearningPlatform.Identity": "[1.0.0, )",
-          "Marten": "[9.32.0, )"
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
+        }
+      },
+      "learningplatform.classroom": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "StackExchange.Redis": "[3.1.31, )",
+          "WolverineFx": "[6.33.0, )"
         }
       },
       "learningplatform.identity": {
@@ -180,6 +201,16 @@
         "requested": "[9.0.4, )",
         "resolved": "9.0.4",
         "contentHash": "68BASXH0FAEuL/J4J0eRfYC8/3vzqQTmoW8zDzNf0JgaVxc7LZeEkS6jaG0ib3voFLxY5ZiCwJG+uQM+mzuu0Q=="
+      },
+      "StackExchange.Redis": {
+        "type": "CentralTransitive",
+        "requested": "[3.1.31, )",
+        "resolved": "3.1.31",
+        "contentHash": "QillloeZxgw9+IWmnowTrjrn+JV7JIMVzr1JiUpCa7pJQI48rtcqG9yy6u5UBRiTuCiKU5909aRu67Ch6gWVMg==",
+        "dependencies": {
+          "RESPite": "3.1.31",
+          "System.IO.Hashing": "10.0.5"
+        }
       }
     }
   }

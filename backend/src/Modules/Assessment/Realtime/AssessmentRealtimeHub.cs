@@ -43,7 +43,7 @@ public sealed class AssessmentRealtimeHub(
         await using var session = store.QuerySession(actor.OrganizationId.ToString("D"));
         var attempt = await session.LoadAsync<StudentActivity>(attemptId);
         if (attempt is null || attempt.OrganizationId != actor.OrganizationId ||
-            !await CanManageClassAsync(actor, attempt.LearningClassId))
+            !await CanReadStudentDetailAsync(actor, attempt.LearningClassId))
         {
             Context.Abort();
             return;
@@ -74,6 +74,18 @@ public sealed class AssessmentRealtimeHub(
     private async Task<bool> CanManageClassAsync(AuthenticatedActor actor, Guid learningClassId)
     {
         return actor.Permissions.Contains(PermissionCatalog.ManageOrganizations, StringComparer.Ordinal) ||
+            await academics.IsClassCreatorAsync(actor.OrganizationId, learningClassId, actor.UserId) ||
+            await academics.IsTeacherAssignedAsync(actor.OrganizationId, learningClassId, actor.UserId);
+    }
+
+    private async Task<bool> CanReadStudentDetailAsync(AuthenticatedActor actor, Guid learningClassId)
+    {
+        if (actor.Permissions.Contains(PermissionCatalog.ManageOrganizations, StringComparer.Ordinal))
+        {
+            return false;
+        }
+
+        return await academics.IsClassCreatorAsync(actor.OrganizationId, learningClassId, actor.UserId) ||
             await academics.IsTeacherAssignedAsync(actor.OrganizationId, learningClassId, actor.UserId);
     }
 }

@@ -11,6 +11,9 @@ public static class LearningConstants
     public static Guid HistoryId(Guid activityId, Guid studentId, int gradeVersion) =>
         StableId($"learning-history:{activityId:D}:{studentId:D}:{gradeVersion}");
 
+    public static Guid LessonProgressId(Guid lessonId, Guid learningClassId, Guid studentId) =>
+        StableId($"lesson-progress:{lessonId:D}:{learningClassId:D}:{studentId:D}");
+
     private static Guid StableId(string value)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));

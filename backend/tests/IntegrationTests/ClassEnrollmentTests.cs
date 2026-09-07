@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using LearningPlatform.Academics.Api;
 using LearningPlatform.Academics.Domain;
+using LearningPlatform.Communication.Api;
 
 namespace LearningPlatform.IntegrationTests;
 
@@ -29,6 +30,15 @@ public sealed class ClassEnrollmentTests(FoundationFixture fixture) : IClassFixt
         var learningClass = await createClass.Content.ReadFromJsonAsync<ClassResponse>();
         Assert.NotNull(learningClass);
         Assert.Equal(LearningClassStatus.Preparing, learningClass.Status);
+
+        using var activate = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/status", new
+            {
+                Status = (int)LearningClassStatus.Active
+            });
+        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        learningClass = await activate.Content.ReadFromJsonAsync<ClassResponse>();
+        Assert.Equal(LearningClassStatus.Active, learningClass!.Status);
 
         using var assign = await PostWithCsrfAsync(teacher,
             $"/api/academics/classes/{learningClass.Id:D}/teachers", new
@@ -70,6 +80,31 @@ public sealed class ClassEnrollmentTests(FoundationFixture fixture) : IClassFixt
             $"/api/academics/classes/{learningClass.Id:D}/enrollments");
         var enrollment = Assert.Single(enrollments!);
         Assert.Equal(student.UserId, enrollment.StudentId);
+        var personalSchedule = await studentClient.GetFromJsonAsync<ScheduleResponse[]>(
+            "/api/academics/schedules/me");
+        var studentSchedule = Assert.Single(personalSchedule!);
+        Assert.Equal(createdSchedule.Id, studentSchedule.Id);
+        NotificationResponse[] notifications = [];
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (!notifications.Any(notification =>
+                       notification.Type == "schedule-created" &&
+                       notification.SourceId == createdSchedule.Id))
+            {
+                notifications = await studentClient.GetFromJsonAsync<NotificationResponse[]>(
+                    "/api/communication/notifications?unreadOnly=true", timeout.Token) ?? [];
+                if (notifications.Any(notification =>
+                        notification.Type == "schedule-created" &&
+                        notification.SourceId == createdSchedule.Id))
+                {
+                    break;
+                }
+
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+        Assert.Contains(notifications, notification => notification.Type == "schedule-created" &&
+            notification.SourceId == createdSchedule.Id);
 
         var rescheduleStart = scheduleStart.AddDays(1);
         using var rescheduled = await PostWithCsrfAsync(teacher,
@@ -141,6 +176,65 @@ public sealed class ClassEnrollmentTests(FoundationFixture fixture) : IClassFixt
             EndDate = "2026-09-10"
         });
         Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+    }
+
+    [Fact]
+    public async Task Teacher_class_management_is_limited_to_created_or_assigned_classes()
+    {
+        var organization = await fixture.EnsureBootstrappedAsync();
+        using var administrator = fixture.Client();
+        FoundationFixture.SetCookies(administrator, await fixture.LoginCookieAsync());
+        var course = await CreatePublishedCourseAsync(administrator);
+        var startDate = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        using var created = await PostWithCsrfAsync(administrator, "/api/academics/classes", new
+        {
+            CourseId = course.Id,
+            Code = $"CLS-{Guid.NewGuid():N}"[..12],
+            Name = "Scoped class",
+            StartDate = startDate,
+            EndDate = startDate.AddMonths(1)
+        });
+        created.EnsureSuccessStatusCode();
+        var learningClass = (await created.Content.ReadFromJsonAsync<ClassResponse>())!;
+
+        var teacherEmail = $"scoped-teacher-{Guid.NewGuid():N}@rlms.test";
+        var teacherPassword = "scoped teacher password";
+        await fixture.CreateTestAccountAsync(teacherEmail, teacherPassword, "TEACHER");
+        using var teacher = fixture.Client();
+        FoundationFixture.SetCookies(teacher,
+            await fixture.LoginCookieAsync(teacherEmail, teacherPassword));
+
+        using var classRead = await teacher.GetAsync($"/api/academics/classes/{learningClass.Id:D}");
+        Assert.Equal(HttpStatusCode.Forbidden, classRead.StatusCode);
+        var visibleClasses = await teacher.GetFromJsonAsync<ClassResponse[]>("/api/academics/classes");
+        Assert.Empty(visibleClasses!);
+
+        using var assign = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/teachers", new
+            {
+                TeacherId = organization.AdministratorId
+            });
+        Assert.Equal(HttpStatusCode.Forbidden, assign.StatusCode);
+
+        var student = await fixture.CreateTestAccountAsync(
+            $"scoped-student-{Guid.NewGuid():N}@rlms.test", "scoped student password", "STUDENT");
+        using var enroll = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/enrollments", new
+            {
+                StudentId = student.UserId
+            });
+        Assert.Equal(HttpStatusCode.Forbidden, enroll.StatusCode);
+
+        var scheduleStart = DateTimeOffset.UtcNow.AddDays(1);
+        using var schedule = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/schedules", new
+            {
+                TeacherId = organization.AdministratorId,
+                StartsAt = scheduleStart,
+                EndsAt = scheduleStart.AddHours(1),
+                Recurrence = (string?)null
+            });
+        Assert.Equal(HttpStatusCode.Forbidden, schedule.StatusCode);
     }
 
     private async Task<CourseResponse> CreatePublishedCourseAsync(HttpClient client)

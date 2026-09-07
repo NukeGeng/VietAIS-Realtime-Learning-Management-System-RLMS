@@ -100,9 +100,51 @@ public sealed class LiveSessionTests(FoundationFixture fixture) : IClassFixture<
             await connection.StopAsync(timeout.Token);
         }
 
+        AttendanceRecordResponse? beforeHttpLeave = null;
+        using (var attendanceTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (beforeHttpLeave is null)
+            {
+                using var attendance = await teacher.GetAsync(
+                    $"/api/classroom/sessions/{scheduled.Id:D}/attendance", attendanceTimeout.Token);
+                attendance.EnsureSuccessStatusCode();
+                var summary = await attendance.Content.ReadFromJsonAsync<AttendanceSummaryResponse>(
+                    attendanceTimeout.Token);
+                beforeHttpLeave = summary?.Records.SingleOrDefault(record => record.StudentId == student.UserId);
+                if (beforeHttpLeave is null)
+                {
+                    await Task.Delay(100, attendanceTimeout.Token);
+                }
+            }
+        }
+
+        // The SignalR connection is only one of the student's active
+        // connections. Its disconnect must not close the attendance segment
+        // while the HTTP join remains active.
+        Assert.Null(beforeHttpLeave.LastLeftAt);
+
         using var leave = await PostWithCsrfAsync(studentClient,
             $"/api/classroom/sessions/{scheduled.Id:D}/leave", new { });
         Assert.Equal(HttpStatusCode.NoContent, leave.StatusCode);
+
+        AttendanceRecordResponse? afterHttpLeave = null;
+        using (var attendanceTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (afterHttpLeave?.LastLeftAt is null)
+            {
+                using var attendance = await teacher.GetAsync(
+                    $"/api/classroom/sessions/{scheduled.Id:D}/attendance", attendanceTimeout.Token);
+                attendance.EnsureSuccessStatusCode();
+                var summary = await attendance.Content.ReadFromJsonAsync<AttendanceSummaryResponse>(
+                    attendanceTimeout.Token);
+                afterHttpLeave = summary?.Records.SingleOrDefault(record => record.StudentId == student.UserId);
+                if (afterHttpLeave?.LastLeftAt is null)
+                {
+                    await Task.Delay(100, attendanceTimeout.Token);
+                }
+            }
+        }
+
         Assert.Null(await redis.KeyTimeToLiveAsync(LivePresenceStore.Key(organization.OrganizationId,
             scheduled.Id, student.UserId)));
 
@@ -208,6 +250,82 @@ public sealed class LiveSessionTests(FoundationFixture fixture) : IClassFixture<
             Description = ""
         });
         Assert.Equal(HttpStatusCode.Created, sameCode.StatusCode);
+    }
+
+    [Fact]
+    public async Task Concurrent_mass_join_reuses_tenant_scoped_session_snapshot_and_attendance_is_async()
+    {
+        var organization = await fixture.EnsureBootstrappedAsync();
+        using var teacher = await AuthenticatedClientAsync();
+        var course = await CreatePublishedCourseAsync(teacher);
+        var learningClass = await CreateClassAsync(teacher, course.Id);
+        using var assignment = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/teachers", new
+            {
+                TeacherId = organization.AdministratorId
+            });
+        assignment.EnsureSuccessStatusCode();
+        using var create = await PostWithCsrfAsync(teacher,
+            $"/api/classroom/classes/{learningClass.Id:D}/sessions", new { });
+        create.EnsureSuccessStatusCode();
+        var liveSession = (await create.Content.ReadFromJsonAsync<LiveSessionResponse>())!;
+        using var start = await PostWithCsrfAsync(teacher,
+            $"/api/classroom/sessions/{liveSession.Id:D}/start", new { });
+        start.EnsureSuccessStatusCode();
+
+        var students = new List<HttpClient>();
+        try
+        {
+            for (var index = 0; index < 8; index++)
+            {
+                var email = $"mass-join-{Guid.NewGuid():N}@rlms.test";
+                var password = "mass join student password";
+                var account = await fixture.CreateTestAccountAsync(email, password, "STUDENT");
+                using var enrollment = await PostWithCsrfAsync(teacher,
+                    $"/api/academics/classes/{learningClass.Id:D}/enrollments", new
+                    {
+                        StudentId = account.UserId
+                    });
+                enrollment.EnsureSuccessStatusCode();
+                var client = fixture.Client();
+                FoundationFixture.SetCookies(client,
+                    await fixture.LoginCookieAsync(email, password));
+                students.Add(client);
+            }
+
+            var joins = await Task.WhenAll(students.Select(student => PostWithCsrfAsync(student,
+                $"/api/classroom/sessions/{liveSession.Id:D}/join", new { })));
+            Assert.All(joins, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+            Assert.NotNull(await fixture.Services.GetRequiredService<IConnectionMultiplexer>().GetDatabase()
+                .KeyTimeToLiveAsync(LiveSessionSnapshotCache.Key(organization.OrganizationId,
+                    liveSession.Id)));
+
+            AttendanceSummaryResponse? attendance = null;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (attendance is null || attendance.PresentCount + attendance.LateCount < students.Count)
+            {
+                using var response = await teacher.GetAsync(
+                    $"/api/classroom/sessions/{liveSession.Id:D}/attendance", timeout.Token);
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                attendance = await response.Content.ReadFromJsonAsync<AttendanceSummaryResponse>(
+                    timeout.Token);
+                if (attendance!.PresentCount + attendance.LateCount >= students.Count)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, timeout.Token);
+            }
+            Assert.Equal(students.Count, attendance!.TotalStudents);
+            Assert.Equal(students.Count, attendance.PresentCount + attendance.LateCount);
+        }
+        finally
+        {
+            foreach (var student in students)
+            {
+                student.Dispose();
+            }
+        }
     }
 
     private async Task<CourseResponse> CreatePublishedCourseAsync(HttpClient client)

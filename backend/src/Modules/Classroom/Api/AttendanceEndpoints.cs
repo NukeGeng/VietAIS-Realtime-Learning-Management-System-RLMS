@@ -118,8 +118,11 @@ public static class AttendanceEndpoints
             {
                 record.TotalDuration += now - joinedAt;
                 record.CurrentJoinedAt = null;
+                record.ActiveConnectionIds = [];
                 record.LastLeftAt = now;
             }
+
+            record.ActiveConnectionIds = [];
 
             record.Status = status;
             record.AdjustedBy = actor.UserId;

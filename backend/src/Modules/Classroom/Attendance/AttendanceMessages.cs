@@ -10,15 +10,22 @@ public sealed record LiveSessionParticipantJoined(
     Guid OrganizationId,
     Guid LiveSessionId,
     Guid StudentId,
-    DateTimeOffset JoinedAt);
+    DateTimeOffset JoinedAt,
+    string ConnectionId = "http");
 
 public sealed record LiveSessionParticipantLeft(
     Guid OrganizationId,
     Guid LiveSessionId,
     Guid StudentId,
-    DateTimeOffset LeftAt);
+    DateTimeOffset LeftAt,
+    string ConnectionId = "http");
 
 public sealed record LiveSessionEnded(
+    Guid OrganizationId,
+    Guid LiveSessionId,
+    DateTimeOffset EndedAt);
+
+public sealed record LiveSessionEndedForReporting(
     Guid OrganizationId,
     Guid LiveSessionId,
     DateTimeOffset EndedAt);
@@ -31,10 +38,12 @@ public static class AttendanceMessagePublisher
         Guid organizationId,
         Guid liveSessionId,
         Guid studentId,
-        DateTimeOffset joinedAt)
+        DateTimeOffset joinedAt,
+        string? connectionId = null)
     {
         await PublishAsync(messageBus, logger,
-            new LiveSessionParticipantJoined(organizationId, liveSessionId, studentId, joinedAt));
+            new LiveSessionParticipantJoined(organizationId, liveSessionId, studentId, joinedAt,
+                AttendanceConnection.Normalize(connectionId)));
     }
 
     public static async Task PublishParticipantLeftAsync(
@@ -43,10 +52,12 @@ public static class AttendanceMessagePublisher
         Guid organizationId,
         Guid liveSessionId,
         Guid studentId,
-        DateTimeOffset leftAt)
+        DateTimeOffset leftAt,
+        string? connectionId = null)
     {
         await PublishAsync(messageBus, logger,
-            new LiveSessionParticipantLeft(organizationId, liveSessionId, studentId, leftAt));
+            new LiveSessionParticipantLeft(organizationId, liveSessionId, studentId, leftAt,
+                AttendanceConnection.Normalize(connectionId)));
     }
 
     public static async Task PublishSessionEndedAsync(
@@ -58,6 +69,8 @@ public static class AttendanceMessagePublisher
     {
         await PublishAsync(messageBus, logger,
             new LiveSessionEnded(organizationId, liveSessionId, endedAt));
+        await PublishAsync(messageBus, logger,
+            new LiveSessionEndedForReporting(organizationId, liveSessionId, endedAt));
     }
 
     private static async Task PublishAsync<T>(IMessageBus messageBus, ILogger logger, T message)
@@ -102,6 +115,7 @@ public static class AttendanceParticipantJoinedHandler
 
         var id = ClassroomConstants.AttendanceRecordId(message.LiveSessionId, message.StudentId);
         var record = await session.LoadAsync<AttendanceRecord>(id, cancellationToken);
+        var connectionId = AttendanceConnection.Normalize(message.ConnectionId);
         if (record is null)
         {
             record = new AttendanceRecord
@@ -117,22 +131,30 @@ public static class AttendanceParticipantJoinedHandler
                     cancellationToken)
                     ? AttendanceStatus.Late
                     : AttendanceStatus.Present,
+                ActiveConnectionIds = [connectionId],
                 UpdatedAt = message.JoinedAt
             };
             session.Insert(record);
         }
         else if (record.AdjustedBy is null)
         {
+            AttendanceConnection.EnsureLegacyConnection(record);
             if (record.FirstJoinedAt is null || message.JoinedAt < record.FirstJoinedAt)
             {
                 record.FirstJoinedAt = message.JoinedAt;
             }
 
             // Repeated join events are idempotent. A new open segment is only
-            // started after a completed leave segment.
-            if (record.CurrentJoinedAt is null)
+            // started after a completed leave segment, while additional
+            // connections share the existing segment.
+            if (!record.ActiveConnectionIds.Contains(connectionId, StringComparer.Ordinal))
             {
-                record.CurrentJoinedAt = message.JoinedAt;
+                if (record.CurrentJoinedAt is null)
+                {
+                    record.CurrentJoinedAt = message.JoinedAt;
+                }
+
+                record.ActiveConnectionIds = [.. record.ActiveConnectionIds, connectionId];
             }
 
             if (record.Status == AttendanceStatus.Absent)
@@ -185,15 +207,26 @@ public static class AttendanceParticipantLeftHandler
         }
         else if (record.AdjustedBy is null)
         {
-            if (record.CurrentJoinedAt is { } joinedAt && message.LeftAt > joinedAt)
+            AttendanceConnection.EnsureLegacyConnection(record);
+            if (!record.ActiveConnectionIds.Contains(AttendanceConnection.Normalize(message.ConnectionId),
+                    StringComparer.Ordinal))
+            {
+                return;
+            }
+
+            record.ActiveConnectionIds = record.ActiveConnectionIds
+                .Where(value => !string.Equals(value, AttendanceConnection.Normalize(message.ConnectionId),
+                    StringComparison.Ordinal))
+                .ToArray();
+            if (record.ActiveConnectionIds.Length == 0 && record.CurrentJoinedAt is { } joinedAt &&
+                message.LeftAt > joinedAt)
             {
                 record.TotalDuration += message.LeftAt - joinedAt;
                 record.CurrentJoinedAt = null;
-            }
-
-            if (record.LastLeftAt is null || message.LeftAt > record.LastLeftAt)
-            {
-                record.LastLeftAt = message.LeftAt;
+                if (record.LastLeftAt is null || message.LeftAt > record.LastLeftAt)
+                {
+                    record.LastLeftAt = message.LeftAt;
+                }
             }
 
             record.UpdatedAt = message.LeftAt;
@@ -243,20 +276,50 @@ public static class AttendanceSessionEndedHandler
                 continue;
             }
 
-            if (record.AdjustedBy is null && record.CurrentJoinedAt is { } joinedAt &&
-                message.EndedAt > joinedAt)
+            if (record.AdjustedBy is null)
             {
-                record.TotalDuration += message.EndedAt - joinedAt;
-                record.CurrentJoinedAt = null;
-                record.LastLeftAt = message.EndedAt;
-                record.UpdatedAt = message.EndedAt;
-                session.Update(record);
+                AttendanceConnection.EnsureLegacyConnection(record);
+                var changed = record.ActiveConnectionIds.Length > 0;
+                if (record.CurrentJoinedAt is { } joinedAt && message.EndedAt > joinedAt)
+                {
+                    record.TotalDuration += message.EndedAt - joinedAt;
+                    record.CurrentJoinedAt = null;
+                    record.LastLeftAt = message.EndedAt;
+                    changed = true;
+                }
+
+                record.ActiveConnectionIds = [];
+                if (changed)
+                {
+                    record.UpdatedAt = message.EndedAt;
+                    session.Update(record);
+                }
             }
         }
 
         await session.SaveChangesAsync(cancellationToken);
     }
 
+}
+
+internal static class AttendanceConnection
+{
+    private const string HttpConnection = "http";
+
+    public static string Normalize(string? connectionId) =>
+        string.IsNullOrWhiteSpace(connectionId) ? HttpConnection : connectionId;
+
+    public static void EnsureLegacyConnection(AttendanceRecord record)
+    {
+        // Records written before connection-aware attendance only had an open
+        // segment marker. Treat that segment as the HTTP connection so it can
+        // be closed safely by the existing leave endpoint.
+        record.ActiveConnectionIds ??= [];
+        if (record.CurrentJoinedAt is not null && record.ActiveConnectionIds.Length == 0)
+        {
+            record.ActiveConnectionIds = [HttpConnection];
+        }
+    }
 }
 
 public static class AttendanceHandlerRules

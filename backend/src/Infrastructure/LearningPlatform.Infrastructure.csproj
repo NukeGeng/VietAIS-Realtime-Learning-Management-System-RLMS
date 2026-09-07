@@ -12,5 +12,6 @@
     <ProjectReference Include="../Modules/Communication/LearningPlatform.Communication.csproj" />
     <ProjectReference Include="../Modules/Identity/LearningPlatform.Identity.csproj" />
     <ProjectReference Include="../Modules/Learning/LearningPlatform.Learning.csproj" />
+    <ProjectReference Include="../Modules/Reporting/LearningPlatform.Reporting.csproj" />
   </ItemGroup>
 </Project>

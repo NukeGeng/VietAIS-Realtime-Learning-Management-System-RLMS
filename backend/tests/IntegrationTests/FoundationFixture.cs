@@ -4,6 +4,8 @@ using System.Net.Http.Json;
 using LearningPlatform.Identity.Authorization;
 using LearningPlatform.Identity.Domain;
 using LearningPlatform.Identity.Api;
+using LearningPlatform.Assessment.Storage;
+using LearningPlatform.Learning.Storage;
 using LearningPlatform.Infrastructure.Persistence;
 using Marten;
 using Microsoft.AspNetCore.Authentication;
@@ -70,6 +72,10 @@ public sealed class FoundationFixture : WebApplicationFactory<Program>
             });
             services.RemoveAll<NpgsqlDataSource>();
             services.AddSingleton(_ => NpgsqlDataSource.Create(connection));
+            services.RemoveAll<IFileStorage>();
+            services.AddSingleton<IFileStorage, TestFileStorage>();
+            services.RemoveAll<ILearningResourceStorage>();
+            services.AddSingleton<ILearningResourceStorage, TestLearningResourceStorage>();
             services.ConfigureWolverine(options =>
                 options.Discovery.IncludeAssembly(typeof(ProbeMessageHandler).Assembly));
         });
@@ -345,6 +351,68 @@ public sealed class FoundationFixture : WebApplicationFactory<Program>
         }
 
         return null;
+    }
+}
+
+internal sealed class TestFileStorage : IFileStorage
+{
+    private readonly Dictionary<string, byte[]> files = new(StringComparer.Ordinal);
+
+    public async Task PutAsync(Guid organizationId, string storageKey, Stream content,
+        string contentType, CancellationToken cancellationToken = default)
+    {
+        if (!storageKey.StartsWith($"{organizationId:D}/", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Test storage received a non-tenant key.");
+        }
+
+        using var memory = new MemoryStream();
+        await content.CopyToAsync(memory, cancellationToken);
+        files[storageKey] = memory.ToArray();
+    }
+
+    public Task<string?> GetReadUrlAsync(Guid organizationId, string storageKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (!storageKey.StartsWith($"{organizationId:D}/", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Test storage received a non-tenant key.");
+        }
+
+        return Task.FromResult<string?>(files.ContainsKey(storageKey)
+            ? $"https://files.test/{storageKey}"
+            : null);
+    }
+}
+
+internal sealed class TestLearningResourceStorage : ILearningResourceStorage
+{
+    private readonly Dictionary<string, byte[]> files = new(StringComparer.Ordinal);
+
+    public async Task PutAsync(Guid organizationId, string storageKey, Stream content,
+        string contentType, CancellationToken cancellationToken = default)
+    {
+        if (!storageKey.StartsWith($"{organizationId:D}/", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Test resource storage received a non-tenant key.");
+        }
+
+        using var memory = new MemoryStream();
+        await content.CopyToAsync(memory, cancellationToken);
+        files[storageKey] = memory.ToArray();
+    }
+
+    public Task<string?> GetReadUrlAsync(Guid organizationId, string storageKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (!storageKey.StartsWith($"{organizationId:D}/", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Test resource storage received a non-tenant key.");
+        }
+
+        return Task.FromResult<string?>(files.ContainsKey(storageKey)
+            ? $"https://files.test/{storageKey}"
+            : null);
     }
 }
 

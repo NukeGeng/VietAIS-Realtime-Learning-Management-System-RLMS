@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace LearningPlatform.Assessment.Domain;
 
 public static class AssessmentRules
@@ -92,7 +95,8 @@ public static class AssessmentRules
         if (type is QuestionType.SingleChoice or QuestionType.MultipleChoice)
         {
             if (safeOptions.Length == 0 || safeAnswers.Length == 0 ||
-                safeAnswers.Any(answer => !keys.Contains(answer, StringComparer.OrdinalIgnoreCase)))
+                safeAnswers.Any(answer => !keys.Contains(answer, StringComparer.OrdinalIgnoreCase)) ||
+                safeAnswers.Distinct(StringComparer.OrdinalIgnoreCase).Count() != safeAnswers.Length)
             {
                 throw new AssessmentValidationException("Choice questions need valid options and correct answers.");
             }
@@ -147,6 +151,36 @@ public static class AssessmentRules
         }
 
         return policy;
+    }
+
+    /// <summary>
+    /// Produces a stable per-attempt order. The order is persisted on the
+    /// StudentActivity aggregate so reconnects and retakes do not reshuffle an
+    /// attempt that is already in progress.
+    /// </summary>
+    public static Guid[] QuestionOrder(IEnumerable<ActivityQuestion> questions, bool shuffle,
+        Guid attemptId)
+    {
+        var ordered = questions.OrderBy(question => question.Order)
+            .Select(question => question.Id)
+            .ToArray();
+        if (!shuffle || ordered.Length < 2)
+        {
+            return ordered;
+        }
+
+        return ordered
+            .OrderBy(questionId => StableQuestionKey(attemptId, questionId), StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    public static bool IsResultsReleased(AssessmentActivity activity, DateTimeOffset now) =>
+        activity.ExamPolicy?.ResultsReleaseAt is not { } releaseAt || now >= releaseAt;
+
+    private static string StableQuestionKey(Guid attemptId, Guid questionId)
+    {
+        var bytes = Encoding.UTF8.GetBytes($"{attemptId:D}:{questionId:D}");
+        return Convert.ToHexString(SHA256.HashData(bytes));
     }
 
     private static string RequireText(string? value, string name, int maxLength)

@@ -6,6 +6,29 @@ public static class GradingRules
     public const int MaxRubricCriteria = 100;
     public const int MaxRubricNameLength = 200;
     public const int MaxRubricDescriptionLength = 4_000;
+    public const int MaxAdjustmentReasonLength = 2_000;
+
+    public static decimal RequireWeight(decimal value)
+    {
+        if (value < 0m || value > 100m || decimal.Round(value, 4) != value)
+        {
+            throw new AssessmentValidationException("Grade item weight must be between 0 and 100.");
+        }
+
+        return value;
+    }
+
+    public static string RequireAdjustmentReason(string? value)
+    {
+        var reason = value?.Trim() ?? "";
+        if (reason.Length == 0 || reason.Length > MaxAdjustmentReasonLength)
+        {
+            throw new AssessmentValidationException(
+                "A grade adjustment reason is required and must be at most 2000 characters.");
+        }
+
+        return reason;
+    }
 
     public static bool IsObjective(QuestionType type) => type is QuestionType.SingleChoice or
         QuestionType.MultipleChoice or QuestionType.TrueFalse;
@@ -43,7 +66,8 @@ public static class GradingRules
             if (criterion.Id == Guid.Empty || criterion.Order < 0 || criterion.MaxPoints <= 0 ||
                 criterion.MaxPoints > 100_000 || string.IsNullOrWhiteSpace(criterion.Name) ||
                 criterion.Name.Trim().Length > MaxRubricNameLength ||
-                criterion.Description.Trim().Length > MaxRubricDescriptionLength)
+                (criterion.Description is not null &&
+                    criterion.Description.Trim().Length > MaxRubricDescriptionLength))
             {
                 throw new AssessmentValidationException("Each rubric criterion needs a valid name, order, description and positive max points.");
             }
@@ -61,7 +85,7 @@ public static class GradingRules
         return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
-    private static bool IsCorrect(ActivityQuestion question, string? answer)
+    public static bool IsCorrect(ActivityQuestion question, string? answer)
     {
         if (!IsObjective(question.Type) || string.IsNullOrWhiteSpace(answer))
         {
@@ -72,12 +96,12 @@ public static class GradingRules
         {
             var selected = answer.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(value => value.ToUpperInvariant()).Order(StringComparer.Ordinal).ToArray();
-            var correct = question.CorrectAnswers.Select(value => value.Trim().ToUpperInvariant())
+            var correct = (question.CorrectAnswers ?? []).Select(value => value.Trim().ToUpperInvariant())
                 .Order(StringComparer.Ordinal).ToArray();
             return selected.SequenceEqual(correct, StringComparer.Ordinal);
         }
 
-        return string.Equals(answer.Trim(), question.CorrectAnswers.SingleOrDefault()?.Trim(),
+        return string.Equals(answer.Trim(), question.CorrectAnswers?.SingleOrDefault()?.Trim(),
             StringComparison.OrdinalIgnoreCase);
     }
 }

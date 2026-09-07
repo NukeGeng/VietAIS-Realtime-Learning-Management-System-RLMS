@@ -56,9 +56,16 @@ public static class LiveSessionEndpoints
             return Results.NotFound();
         }
 
+        if (learningClass.Status is LearningClassStatus.Completed or LearningClassStatus.Archived)
+        {
+            return Results.Conflict(new { error = "A completed or archived class cannot create a live session." });
+        }
+
         var teacherId = request.TeacherId ?? actor.UserId;
         var canManageClass = actor.Permissions.Contains(PermissionCatalog.ManageOrganizations,
-            StringComparer.Ordinal);
+            StringComparer.Ordinal) ||
+            await academics.IsClassCreatorAsync(actor.OrganizationId, classId, actor.UserId,
+                cancellationToken);
         if (!canManageClass && !await academics.IsTeacherAssignedAsync(actor.OrganizationId, classId,
                 actor.UserId, cancellationToken))
         {
@@ -110,6 +117,7 @@ public static class LiveSessionEndpoints
         HttpContext context,
         IQuerySession session,
         IAcademicDirectory academics,
+        LiveSessionSnapshotCache snapshotCache,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -117,7 +125,8 @@ public static class LiveSessionEndpoints
             return Results.Forbid();
         }
 
-        var liveSession = await session.LoadAsync<LiveSession>(sessionId, cancellationToken);
+        var liveSession = await snapshotCache.GetAsync(actor!.OrganizationId, sessionId,
+            token => session.LoadAsync<LiveSession>(sessionId, token), cancellationToken);
         if (liveSession is null)
         {
             return Results.NotFound();
@@ -136,6 +145,7 @@ public static class LiveSessionEndpoints
         HttpContext context,
         IDocumentSession session,
         IAcademicDirectory academics,
+        LiveSessionSnapshotCache snapshotCache,
         CancellationToken cancellationToken)
     {
         var liveSession = await session.LoadAsync<LiveSession>(sessionId, cancellationToken);
@@ -161,6 +171,7 @@ public static class LiveSessionEndpoints
             liveSession.UpdatedAt = DateTimeOffset.UtcNow;
             session.Update(liveSession);
             await session.SaveChangesAsync(cancellationToken);
+            await snapshotCache.InvalidateAsync(liveSession.OrganizationId, liveSession.Id);
         }
 
         return Results.Ok(LiveSessionResponse.From(liveSession));
@@ -173,6 +184,7 @@ public static class LiveSessionEndpoints
         IAcademicDirectory academics,
         IMessageBus messageBus,
         ILogger<LiveSessionHub> logger,
+        LiveSessionSnapshotCache snapshotCache,
         CancellationToken cancellationToken)
     {
         var liveSession = await session.LoadAsync<LiveSession>(sessionId, cancellationToken);
@@ -199,6 +211,7 @@ public static class LiveSessionEndpoints
             liveSession.UpdatedAt = DateTimeOffset.UtcNow;
             session.Update(liveSession);
             await session.SaveChangesAsync(cancellationToken);
+            await snapshotCache.InvalidateAsync(liveSession.OrganizationId, liveSession.Id);
             await AttendanceMessagePublisher.PublishSessionEndedAsync(messageBus, logger,
                 liveSession.OrganizationId, liveSession.Id, liveSession.EndedAt.Value);
         }
@@ -212,6 +225,7 @@ public static class LiveSessionEndpoints
         IQuerySession session,
         IAcademicDirectory academics,
         LivePresenceStore presence,
+        LiveSessionSnapshotCache snapshotCache,
         IConfiguration configuration,
         IMessageBus messageBus,
         ILogger<LiveSessionHub> logger,
@@ -222,7 +236,8 @@ public static class LiveSessionEndpoints
             return Results.Forbid();
         }
 
-        var liveSession = await session.LoadAsync<LiveSession>(sessionId, cancellationToken);
+        var liveSession = await snapshotCache.GetAsync(actor!.OrganizationId, sessionId,
+            token => session.LoadAsync<LiveSession>(sessionId, token), cancellationToken);
         if (liveSession is null)
         {
             return Results.NotFound();
@@ -262,6 +277,7 @@ public static class LiveSessionEndpoints
         IQuerySession session,
         IAcademicDirectory academics,
         LivePresenceStore presence,
+        LiveSessionSnapshotCache snapshotCache,
         IMessageBus messageBus,
         ILogger<LiveSessionHub> logger,
         CancellationToken cancellationToken)
@@ -271,7 +287,8 @@ public static class LiveSessionEndpoints
             return Results.Forbid();
         }
 
-        var liveSession = await session.LoadAsync<LiveSession>(sessionId, cancellationToken);
+        var liveSession = await snapshotCache.GetAsync(actor!.OrganizationId, sessionId,
+            token => session.LoadAsync<LiveSession>(sessionId, token), cancellationToken);
         if (liveSession is null)
         {
             return Results.NotFound();
@@ -315,6 +332,7 @@ public sealed class LiveSessionHub(
     IDocumentStore store,
     IAcademicDirectory academics,
     LivePresenceStore presence,
+    LiveSessionSnapshotCache snapshotCache,
     IMessageBus messageBus,
     ILogger<LiveSessionHub> logger) : Hub
 {
@@ -333,8 +351,12 @@ public sealed class LiveSessionHub(
             return;
         }
 
-        await using var session = store.QuerySession(actor!.OrganizationId.ToString("D"));
-        var liveSession = await session.LoadAsync<LiveSession>(sessionId);
+        var liveSession = await snapshotCache.GetAsync(actor!.OrganizationId, sessionId,
+            async _ =>
+            {
+                await using var session = store.QuerySession(actor.OrganizationId.ToString("D"));
+                return await session.LoadAsync<LiveSession>(sessionId);
+            }, Context.ConnectionAborted);
         if (liveSession is null || liveSession.Status != LiveSessionStatus.Started ||
             !await CanJoinAsync(actor, liveSession))
         {
@@ -344,12 +366,13 @@ public sealed class LiveSessionHub(
 
         var group = Group(actor.OrganizationId, sessionId);
         await Groups.AddToGroupAsync(Context.ConnectionId, group);
-        await presence.MarkJoinedAsync(actor.OrganizationId, sessionId, actor.UserId);
+        await presence.MarkJoinedAsync(actor.OrganizationId, sessionId, actor.UserId,
+            connectionId: Context.ConnectionId);
         if (await academics.IsStudentEnrolledAsync(actor.OrganizationId, liveSession.LearningClassId,
                 actor.UserId))
         {
             await AttendanceMessagePublisher.PublishParticipantJoinedAsync(messageBus, logger,
-                actor.OrganizationId, sessionId, actor.UserId, DateTimeOffset.UtcNow);
+                actor.OrganizationId, sessionId, actor.UserId, DateTimeOffset.UtcNow, Context.ConnectionId);
         }
         await Clients.Group(group).SendAsync("participant-joined",
             new PresenceDelta(actor.UserId, DateTimeOffset.UtcNow));
@@ -362,8 +385,12 @@ public sealed class LiveSessionHub(
         if (principal is not null && TryGetSessionId(out var sessionId) &&
             AuthenticatedActor.TryCreate(principal, out var actor))
         {
-            await using var session = store.QuerySession(actor!.OrganizationId.ToString("D"));
-            var liveSession = await session.LoadAsync<LiveSession>(sessionId);
+            var liveSession = await snapshotCache.GetAsync(actor!.OrganizationId, sessionId,
+                async _ =>
+                {
+                    await using var session = store.QuerySession(actor.OrganizationId.ToString("D"));
+                    return await session.LoadAsync<LiveSession>(sessionId);
+                }, Context.ConnectionAborted);
             if (liveSession is null || liveSession.Status != LiveSessionStatus.Started ||
                 !await CanJoinAsync(actor, liveSession))
             {
@@ -371,7 +398,8 @@ public sealed class LiveSessionHub(
                 return;
             }
 
-            await presence.MarkJoinedAsync(actor.OrganizationId, sessionId, actor.UserId);
+            await presence.MarkJoinedAsync(actor.OrganizationId, sessionId, actor.UserId,
+                connectionId: Context.ConnectionId);
         }
     }
 
@@ -382,11 +410,15 @@ public sealed class LiveSessionHub(
             AuthenticatedActor.TryCreate(principal, out var actor))
         {
             var leftAt = DateTimeOffset.UtcNow;
-            await presence.RemoveAsync(actor!.OrganizationId, sessionId, actor.UserId);
+            var wasLastConnection = await presence.RemoveAsync(actor!.OrganizationId, sessionId, actor.UserId,
+                connectionId: Context.ConnectionId);
             await AttendanceMessagePublisher.PublishParticipantLeftAsync(messageBus, logger,
-                actor.OrganizationId, sessionId, actor.UserId, leftAt);
-            await Clients.Group(Group(actor.OrganizationId, sessionId)).SendAsync("participant-left",
-                new PresenceDelta(actor.UserId, DateTimeOffset.UtcNow));
+                actor.OrganizationId, sessionId, actor.UserId, leftAt, Context.ConnectionId);
+            if (wasLastConnection)
+            {
+                await Clients.Group(Group(actor.OrganizationId, sessionId)).SendAsync("participant-left",
+                    new PresenceDelta(actor.UserId, DateTimeOffset.UtcNow));
+            }
         }
 
         if (exception is not null)

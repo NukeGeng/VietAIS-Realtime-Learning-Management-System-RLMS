@@ -65,6 +65,7 @@ public sealed class LearningClass
     public Guid CourseId { get; set; }
     public string Code { get; set; } = "";
     public string Name { get; set; } = "";
+    public Guid CreatedBy { get; set; }
     public LearningClassStatus Status { get; set; }
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }
