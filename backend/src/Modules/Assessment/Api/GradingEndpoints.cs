@@ -388,7 +388,8 @@ public static class GradingEndpoints
 
     private static async Task<IResult> AdjustGradeEntryAsync(Guid gradeEntryId,
         AdjustGradeEntryRequest request, HttpContext context, IDocumentSession session,
-        IAcademicDirectory academics, CancellationToken cancellationToken)
+        IAcademicDirectory academics, IMessageBus messageBus, ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
         {
@@ -440,9 +441,10 @@ public static class GradingEndpoints
         entry.GradedAt = now;
         entry.PublishedAt = null;
         entry.Passed = null;
+        AssessmentActivity? activity = null;
         if (entry.ActivityId != Guid.Empty)
         {
-            var activity = await session.LoadAsync<AssessmentActivity>(entry.ActivityId,
+            activity = await session.LoadAsync<AssessmentActivity>(entry.ActivityId,
                 cancellationToken);
             if (activity is not null)
             {
@@ -474,6 +476,37 @@ public static class GradingEndpoints
             GradeVersion = entry.Version
         });
         await session.SaveChangesAsync(cancellationToken);
+
+        var gradeItem = await session.LoadAsync<GradeItem>(entry.GradeItemId, cancellationToken);
+        var effective = await session.Query<GradeEntry>()
+            .Where(value => value.GradeItemId == entry.GradeItemId &&
+                value.StudentId == entry.StudentId && value.Status == GradeEntryStatus.Published)
+            .OrderByDescending(value => value.AttemptNumber)
+            .ThenByDescending(value => value.Version)
+            .FirstOrDefaultAsync(cancellationToken);
+        var learningClass = await academics.FindClassAsync(actor.OrganizationId,
+            entry.LearningClassId, cancellationToken);
+        var effectiveActivity = effective?.ActivityId is { } effectiveActivityId &&
+            effectiveActivityId != Guid.Empty
+            ? await session.LoadAsync<AssessmentActivity>(effectiveActivityId, cancellationToken)
+            : activity;
+        var effectiveActivityIdForProgress = effective?.EssayAssignmentId ?? effective?.ActivityId ??
+            entry.EssayAssignmentId ?? entry.ActivityId;
+        var effectiveGradeEntryId = effective?.Id ?? entry.Id;
+        var effectiveTitle = effective is null
+            ? activity?.Title ?? gradeItem?.Title ?? ""
+            : gradeItem?.Title ?? effectiveActivity?.Title ?? "";
+        var effectiveAttemptNumber = effective?.AttemptNumber ?? entry.AttemptNumber;
+        var effectiveScore = effective?.Score ?? entry.Score;
+        var effectiveMaxScore = effective?.MaxScore ?? entry.MaxScore;
+        var effectiveVersion = effective?.Version ?? entry.Version;
+        var logger = loggerFactory.CreateLogger("LearningPlatform.Assessment.Grading");
+        await GradePublicationPublisher.PublishVisibilityChangedAsync(messageBus, logger,
+            new GradeEntryVisibilityChanged(entry.OrganizationId, entry.LearningClassId,
+                gradeItem?.CourseId ?? learningClass?.CourseId, entry.StudentId,
+                effectiveActivityIdForProgress, effectiveGradeEntryId, effectiveTitle,
+                effective is not null, effectiveAttemptNumber, effectiveScore, effectiveMaxScore,
+                effectiveVersion, now, effectiveActivity?.ExamPolicy?.ResultsReleaseAt));
         return Results.Ok(GradeEntryResponse.From(entry));
     }
 

@@ -116,4 +116,31 @@ public static class GradePublicationPublisher
                 message.GradeEntryId);
         }
     }
+
+    public static async Task PublishVisibilityChangedAsync(IMessageBus messageBus, ILogger logger,
+        GradeEntryVisibilityChanged message)
+    {
+        try
+        {
+            await messageBus.PublishAsync(message);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception,
+                "Unable to enqueue learning progress visibility update for {GradeEntryId}.",
+                message.GradeEntryId);
+        }
+
+        try
+        {
+            await messageBus.PublishAsync(new GradeEntryVisibilityChangedForReporting(
+                message.OrganizationId, message.LearningClassId, message.StudentId));
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception,
+                "Unable to enqueue reporting visibility update for {GradeEntryId}.",
+                message.GradeEntryId);
+        }
+    }
 }

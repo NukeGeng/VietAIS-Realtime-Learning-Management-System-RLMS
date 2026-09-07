@@ -20,6 +20,15 @@ public static class ReportingProjectionHandler
             message.StudentId, cancellationToken);
     }
 
+    public static async Task Handle(GradeEntryVisibilityChangedForReporting message,
+        IDocumentStore store, CancellationToken cancellationToken)
+    {
+        await RebuildClassAsync(store, message.OrganizationId, message.LearningClassId,
+            cancellationToken);
+        await RebuildStudentAsync(store, message.OrganizationId, message.LearningClassId,
+            message.StudentId, cancellationToken);
+    }
+
     public static async Task Handle(LessonProgressChangedForReporting message, IDocumentStore store,
         CancellationToken cancellationToken)
     {
@@ -237,6 +246,10 @@ public static class ReportingProjectionHandler
         progress = progress.Where(value => !activityById.TryGetValue(value.ActivityId,
                 out var activity) || AssessmentRules.IsResultsReleased(activity, now))
             .ToList();
+        var visibleActivityIds = grades.Select(EffectiveActivityId)
+            .Where(value => value != Guid.Empty)
+            .ToHashSet();
+        progress = progress.Where(value => visibleActivityIds.Contains(value.ActivityId)).ToList();
         var lessons = await session.Query<Lesson>()
             .Where(value => value.CourseId == learningClass.CourseId &&
                 value.Status == AcademicContentStatus.Published)
@@ -305,4 +318,7 @@ public static class ReportingProjectionHandler
         session.Store(snapshot);
         await session.SaveChangesAsync(cancellationToken);
     }
+
+    private static Guid EffectiveActivityId(GradeEntry grade) =>
+        grade.EssayAssignmentId ?? grade.ActivityId;
 }

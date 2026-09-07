@@ -6,12 +6,29 @@ public sealed record GradeEntryPublished(Guid OrganizationId, Guid LearningClass
     DateTimeOffset PublishedAt, DateTimeOffset? ResultsReleaseAt = null);
 
 /// <summary>
+/// Describes the effective student-visible grade after a published entry is
+/// adjusted. The effective entry can be absent when an adjustment moves the
+/// last published grade back to draft.
+/// </summary>
+public sealed record GradeEntryVisibilityChanged(Guid OrganizationId, Guid LearningClassId,
+    Guid? CourseId, Guid StudentId, Guid ActivityId, Guid GradeEntryId, string ActivityTitle,
+    bool IsPublished, int AttemptNumber, decimal Score, decimal MaxScore, int GradeVersion,
+    DateTimeOffset ChangedAt, DateTimeOffset? ResultsReleaseAt = null);
+
+/// <summary>
 /// Integration event for the asynchronous Reporting read model. It is separate
 /// from the Learning progress event so each projection has an independent queue
 /// and failure domain.
 /// </summary>
 public sealed record GradeEntryPublishedForReporting(Guid OrganizationId, Guid LearningClassId,
     Guid StudentId, Guid GradeEntryId, DateTimeOffset PublishedAt);
+
+/// <summary>
+/// Refreshes reporting after the effective published grade changes, including
+/// when an adjustment withdraws the last visible grade.
+/// </summary>
+public sealed record GradeEntryVisibilityChangedForReporting(Guid OrganizationId,
+    Guid LearningClassId, Guid StudentId);
 
 /// <summary>
 /// Refreshes the reporting read models after a durable lesson progress change.

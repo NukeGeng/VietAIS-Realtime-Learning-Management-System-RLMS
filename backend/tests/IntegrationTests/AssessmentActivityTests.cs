@@ -345,6 +345,52 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         var adjusted = await adjustment.Content.ReadFromJsonAsync<GradeEntryResponse>();
         Assert.Equal(GradeEntryStatus.Draft, adjusted!.Status);
         Assert.Equal(4m, adjusted.Score);
+
+        LearningProgressResponse? adjustedProgress = null;
+        using (var adjustmentProgressTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (adjustedProgress is null || adjustedProgress.Entries.Any(entry =>
+                       entry.ActivityId == setup.Activity.Id))
+            {
+                using var progressResponse = await setup.Student.GetAsync(
+                    $"/api/learning/classes/{setup.ClassId:D}/progress/me",
+                    adjustmentProgressTimeout.Token);
+                progressResponse.EnsureSuccessStatusCode();
+                adjustedProgress = await progressResponse.Content.ReadFromJsonAsync<LearningProgressResponse>(
+                    adjustmentProgressTimeout.Token);
+                if (adjustedProgress is not null && !adjustedProgress.Entries.Any(entry =>
+                        entry.ActivityId == setup.Activity.Id))
+                {
+                    break;
+                }
+
+                await Task.Delay(100, adjustmentProgressTimeout.Token);
+            }
+        }
+        Assert.DoesNotContain(adjustedProgress!.Entries, entry => entry.ActivityId == setup.Activity.Id);
+
+        StudentReportResponse? adjustedReport = null;
+        using (var adjustmentReportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (adjustedReport is null || adjustedReport.CompletedActivityCount != 0)
+            {
+                using var reportResponse = await setup.Student.GetAsync(
+                    $"/api/reporting/classes/{setup.ClassId:D}/students/me",
+                    adjustmentReportTimeout.Token);
+                reportResponse.EnsureSuccessStatusCode();
+                adjustedReport = await reportResponse.Content.ReadFromJsonAsync<StudentReportResponse>(
+                    adjustmentReportTimeout.Token);
+                if (adjustedReport?.CompletedActivityCount == 0)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, adjustmentReportTimeout.Token);
+            }
+        }
+        Assert.Equal(0, adjustedReport!.PublishedGradeCount);
+        Assert.Equal(0, adjustedReport.CompletedActivityCount);
+
         using var adjustments = await setup.Teacher.GetAsync(
             $"/api/assessment/grade-entries/{automaticGrade.Id:D}/adjustments");
         Assert.Equal(HttpStatusCode.OK, adjustments.StatusCode);
@@ -739,11 +785,12 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
     [Fact]
     public async Task Exam_results_are_hidden_until_release_time_in_student_reads()
     {
+        var releaseAt = DateTimeOffset.UtcNow.AddSeconds(3);
         var setup = await CreateActivitySetupAsync(activityKind: AssessmentActivityKind.Exam,
             examPolicy: new ExamPolicy
             {
                 AttemptLimit = 1,
-                ResultsReleaseAt = DateTimeOffset.UtcNow.AddMinutes(5)
+                ResultsReleaseAt = releaseAt
             });
 
         using var start = await PostWithCsrfAsync(setup.Student,
@@ -799,6 +846,37 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         Assert.NotNull(hiddenReport);
         Assert.Equal(1, hiddenReport!.ActivityCount);
         Assert.Equal(0, hiddenReport.CompletedActivityCount);
+
+        using (var releaseWait = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (DateTimeOffset.UtcNow < releaseAt)
+            {
+                await Task.Delay(50, releaseWait.Token);
+            }
+        }
+
+        StudentReportResponse? releasedReport = null;
+        using (var releaseReportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (releasedReport is null || releasedReport.CompletedActivityCount != 1)
+            {
+                using var reportResponse = await setup.Student.GetAsync(
+                    $"/api/reporting/classes/{setup.ClassId:D}/students/me",
+                    releaseReportTimeout.Token);
+                reportResponse.EnsureSuccessStatusCode();
+                releasedReport = await reportResponse.Content.ReadFromJsonAsync<StudentReportResponse>(
+                    releaseReportTimeout.Token);
+                if (releasedReport?.CompletedActivityCount == 1)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, releaseReportTimeout.Token);
+            }
+        }
+        Assert.NotNull(releasedReport);
+        Assert.Equal(1, releasedReport!.PublishedGradeCount);
+        Assert.Equal(1, releasedReport.CompletedActivityCount);
 
         using var teacherGradebookResponse = await setup.Teacher.GetAsync(
             $"/api/assessment/classes/{setup.ClassId:D}/gradebook");

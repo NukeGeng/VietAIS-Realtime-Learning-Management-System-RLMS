@@ -55,7 +55,11 @@ builder.UseWolverine(options =>
     options.LocalQueue("learning-progress").Sequential();
     options.PublishMessage<LearningPlatform.Learning.Contracts.GradeEntryPublished>()
         .ToLocalQueue("learning-progress");
+    options.PublishMessage<LearningPlatform.Learning.Contracts.GradeEntryVisibilityChanged>()
+        .ToLocalQueue("learning-progress");
     options.PublishMessage<LearningPlatform.Learning.Contracts.GradeEntryPublishedForReporting>()
+        .ToLocalQueue("reporting-projection");
+    options.PublishMessage<LearningPlatform.Learning.Contracts.GradeEntryVisibilityChangedForReporting>()
         .ToLocalQueue("reporting-projection");
     options.PublishMessage<LearningPlatform.Learning.Contracts.LessonProgressChangedForReporting>()
         .ToLocalQueue("reporting-projection");

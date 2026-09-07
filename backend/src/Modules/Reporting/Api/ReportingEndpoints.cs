@@ -184,7 +184,8 @@ public static class ReportingEndpoints
 
         var snapshot = await session.LoadAsync<StudentReportSnapshot>(
             ReportingConstants.StudentSnapshotId(classId, requestedStudentId), cancellationToken);
-        if (snapshot is null)
+        if (snapshot is null || await StudentReportNeedsRefreshAsync(session, classId,
+                requestedStudentId, snapshot, cancellationToken))
         {
             await ReportingProjectionHandler.RebuildStudentAsync(store, actor.OrganizationId, classId,
                 requestedStudentId, cancellationToken);
@@ -194,6 +195,35 @@ public static class ReportingEndpoints
         return Results.Ok(snapshot is null
             ? StudentReportResponse.Empty(classId, requestedStudentId)
             : StudentReportResponse.From(snapshot));
+    }
+
+    private static async Task<bool> StudentReportNeedsRefreshAsync(IQuerySession session,
+        Guid classId, Guid studentId, StudentReportSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var activities = await session.Query<AssessmentActivity>()
+            .Where(value => value.LearningClassId == classId &&
+                value.Status != AssessmentActivityStatus.Draft)
+            .ToListAsync(cancellationToken);
+        var released = activities
+            .Where(value => value.ExamPolicy?.ResultsReleaseAt is { } releaseAt && releaseAt <= now)
+            .ToArray();
+        if (released.Length == 0)
+        {
+            return false;
+        }
+
+        var releasedIds = released.Select(value => value.Id).ToArray();
+        var transitionedIds = released
+            .Where(value => value.ExamPolicy!.ResultsReleaseAt > snapshot.UpdatedAt)
+            .Select(value => value.Id)
+            .ToArray();
+        return await session.Query<GradeEntry>()
+            .Where(value => value.LearningClassId == classId && value.StudentId == studentId &&
+                releasedIds.Contains(value.ActivityId) &&
+                (value.UpdatedAt > snapshot.UpdatedAt || transitionedIds.Contains(value.ActivityId)))
+            .AnyAsync(cancellationToken);
     }
 
     private static async Task<IResult> GetActivitySummaryAsync(Guid activityId, HttpContext context,
