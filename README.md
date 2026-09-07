@@ -31,6 +31,13 @@ bash scripts/test.sh
 dotnet run --project backend/src/Api --launch-profile https
 ```
 
+Kiểm thử workload realtime riêng chạy trên test host và mặc định dùng 16 sinh viên:
+
+```bash
+bash scripts/load-test.sh
+RLMS_LOAD_STUDENTS=32 bash scripts/load-test.sh
+```
+
 API HTTPS: `https://localhost:7041`; health HTTP: `http://localhost:5164/health/live`.
 Cookie Secure yêu cầu HTTPS cho các flow đăng nhập. Cần trust development
 certificate trên máy dùng browser (`dotnet dev-certs https --trust`).
