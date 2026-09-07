@@ -24,16 +24,16 @@ public static class NotificationRequestedHandler
         var notification = await session.LoadAsync<Notification>(notificationId, cancellationToken);
         var isNew = notification is null;
         notification ??= new Notification
-            {
-                Id = notificationId,
-                OrganizationId = message.OrganizationId,
-                UserId = message.UserId,
-                Type = message.Type.Trim(),
-                Title = message.Title.Trim(),
-                Body = message.Body.Trim(),
-                SourceId = message.SourceId,
-                CreatedAt = message.OccurredAt
-            };
+        {
+            Id = notificationId,
+            OrganizationId = message.OrganizationId,
+            UserId = message.UserId,
+            Type = message.Type.Trim(),
+            Title = message.Title.Trim(),
+            Body = message.Body.Trim(),
+            SourceId = message.SourceId,
+            CreatedAt = message.OccurredAt
+        };
         if (isNew)
         {
             session.Insert(notification);

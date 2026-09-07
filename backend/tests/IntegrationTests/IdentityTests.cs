@@ -150,10 +150,10 @@ public sealed class IdentityTests(FoundationFixture fixture) : IClassFixture<Fou
         using var protectedBuiltIn = await SendWithCsrfAsync(adminClient, adminCookie, HttpMethod.Put,
             $"/api/identity/roles/{IdentityConstants.RoleId(
                 (await fixture.EnsureBootstrappedAsync()).OrganizationId, "ADMIN"):D}", new
-            {
-                Name = "Administrator Copy",
-                Permissions = new[] { PermissionCatalog.ManageUsers }
-            });
+                {
+                    Name = "Administrator Copy",
+                    Permissions = new[] { PermissionCatalog.ManageUsers }
+                });
         Assert.Equal(HttpStatusCode.Conflict, protectedBuiltIn.StatusCode);
 
         var userEmail = $"custom-role-{Guid.NewGuid():N}@rlms.test";

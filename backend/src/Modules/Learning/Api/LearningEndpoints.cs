@@ -343,7 +343,7 @@ public static class LearningEndpoints
                     resource.LearningClassId, actor.UserId, cancellationToken) ||
                 resource.LessonId is { } lessonId &&
                 await session.LoadAsync<Lesson>(lessonId, cancellationToken) is not
-                    { Status: AcademicContentStatus.Published }))
+                { Status: AcademicContentStatus.Published }))
         {
             return Results.Forbid();
         }

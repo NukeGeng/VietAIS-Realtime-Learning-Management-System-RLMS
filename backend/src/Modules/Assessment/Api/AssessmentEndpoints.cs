@@ -1440,7 +1440,7 @@ public static class AssessmentEndpoints
                 state.Apply(resolved);
                 break;
             default:
-                throw new InvalidOperationException($"Unsupported student activity event { @event.GetType().Name }.");
+                throw new InvalidOperationException($"Unsupported student activity event {@event.GetType().Name}.");
         }
     }
 
