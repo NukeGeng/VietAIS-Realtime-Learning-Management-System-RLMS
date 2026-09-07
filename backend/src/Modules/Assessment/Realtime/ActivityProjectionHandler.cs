@@ -35,6 +35,7 @@ public static class ActivityProjectionHandler
             Id = state.AttemptId,
             OrganizationId = state.OrganizationId,
             StudentId = state.StudentId,
+            AttemptNumber = state.AttemptNumber,
             ActivityId = state.ActivityId,
             LearningClassId = state.LearningClassId,
             LiveSessionId = state.LiveSessionId,

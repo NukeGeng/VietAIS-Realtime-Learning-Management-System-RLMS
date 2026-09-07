@@ -361,6 +361,7 @@
           "LearningPlatform.Academics": "[1.0.0, )",
           "LearningPlatform.Classroom": "[1.0.0, )",
           "LearningPlatform.Identity": "[1.0.0, )",
+          "LearningPlatform.Learning": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "WolverineFx": "[6.33.0, )"
         }
@@ -400,10 +401,20 @@
           "LearningPlatform.Classroom": "[1.0.0, )",
           "LearningPlatform.Communication": "[1.0.0, )",
           "LearningPlatform.Identity": "[1.0.0, )",
+          "LearningPlatform.Learning": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "StackExchange.Redis": "[3.1.31, )",
           "WolverineFx.Marten": "[6.33.0, )",
           "WolverineFx.RuntimeCompilation": "[6.33.0, )"
+        }
+      },
+      "learningplatform.learning": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
         }
       },
       "AWSSDK.S3": {

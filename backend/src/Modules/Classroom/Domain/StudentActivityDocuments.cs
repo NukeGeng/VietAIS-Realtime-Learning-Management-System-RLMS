@@ -27,6 +27,7 @@ public sealed class StudentActivity
     public DateTimeOffset LastActivityAt { get; set; }
     public DateTimeOffset? SubmittedAt { get; set; }
     public long Version { get; set; }
+    public int AttemptNumber { get; set; } = 1;
 
     public void Apply(StudentActivityStarted @event)
     {
@@ -36,6 +37,7 @@ public sealed class StudentActivity
         ActivityId = @event.ActivityId;
         LearningClassId = @event.LearningClassId;
         LiveSessionId = @event.LiveSessionId;
+        AttemptNumber = @event.AttemptNumber;
         Status = StudentActivityStatus.InProgress;
         StartedAt = @event.OccurredAt;
         LastActivityAt = @event.OccurredAt;
@@ -96,7 +98,8 @@ public sealed class StudentActivity
 }
 
 public sealed record StudentActivityStarted(Guid AttemptId, Guid OrganizationId, Guid StudentId,
-    Guid ActivityId, Guid LearningClassId, Guid? LiveSessionId, DateTimeOffset OccurredAt);
+    Guid ActivityId, Guid LearningClassId, Guid? LiveSessionId, DateTimeOffset OccurredAt,
+    int AttemptNumber = 1);
 
 public sealed record QuestionOpened(Guid AttemptId, Guid QuestionId, DateTimeOffset OccurredAt);
 

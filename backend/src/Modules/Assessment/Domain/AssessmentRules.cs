@@ -126,6 +126,29 @@ public static class AssessmentRules
         return kind;
     }
 
+    public static ExamPolicy? ValidateExamPolicy(AssessmentActivityKind kind, ExamPolicy? policy)
+    {
+        if (kind != AssessmentActivityKind.Exam)
+        {
+            return policy is null ? null : throw new AssessmentValidationException(
+                "Exam policy can only be set for an exam activity.");
+        }
+
+        policy ??= new ExamPolicy();
+        if (policy.AttemptLimit is < 1 or > 20 ||
+            policy.PassingScore is < 0m or > 100m)
+        {
+            throw new AssessmentValidationException("Exam attempt limit must be between 1 and 20 and passing score between 0 and 100.");
+        }
+
+        if (policy.AttemptLimit == 1 && policy.AllowRetake)
+        {
+            throw new AssessmentValidationException("An exam with one attempt cannot allow retakes.");
+        }
+
+        return policy;
+    }
+
     private static string RequireText(string? value, string name, int maxLength)
     {
         var normalized = value?.Trim() ?? "";

@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using LearningPlatform.Identity;
 using LearningPlatform.Identity.Api;
 using LearningPlatform.Identity.Authorization;
+using LearningPlatform.Learning;
+using LearningPlatform.Learning.Api;
 using LearningPlatform.Academics;
 using LearningPlatform.Academics.Api;
 using LearningPlatform.Assessment;
@@ -27,6 +29,7 @@ builder.Services.AddAcademicsModule();
 builder.Services.AddAssessmentModule();
 builder.Services.AddClassroomModule();
 builder.Services.AddCommunicationModule();
+builder.Services.AddLearningModule();
 builder.Services.AddSignalR(options => options.EnableDetailedErrors = false);
 builder.AddInfrastructure();
 builder.UseWolverine(options =>
@@ -34,12 +37,16 @@ builder.UseWolverine(options =>
     options.Policies.UseDurableLocalQueues();
     options.Discovery.IncludeAssembly(typeof(ClassroomModuleRegistration).Assembly);
     options.Discovery.IncludeAssembly(typeof(AssessmentModuleRegistration).Assembly);
+    options.Discovery.IncludeAssembly(typeof(LearningModuleRegistration).Assembly);
     options.LocalQueue("attendance").Sequential();
     options.PublishMessage<LiveSessionParticipantJoined>().ToLocalQueue("attendance");
     options.PublishMessage<LiveSessionParticipantLeft>().ToLocalQueue("attendance");
     options.PublishMessage<LiveSessionEnded>().ToLocalQueue("attendance");
     options.LocalQueue("activity-projection").Sequential();
     options.PublishMessage<StudentActivityChanged>().ToLocalQueue("activity-projection");
+    options.LocalQueue("learning-progress").Sequential();
+    options.PublishMessage<LearningPlatform.Learning.Contracts.GradeEntryPublished>()
+        .ToLocalQueue("learning-progress");
 });
 
 var app = builder.Build();
@@ -67,6 +74,7 @@ app.MapIdentityEndpoints();
 app.MapAcademicEndpoints();
 app.MapClassEndpoints();
 app.MapAssessmentEndpoints();
+app.MapLearningEndpoints();
 app.MapHub<AssessmentRealtimeHub>("/hubs/assessment")
     .RequireAuthorization(IdentityAuthorizationPolicies.SubmitAssessmentActivities);
 app.MapLiveSessionEndpoints();

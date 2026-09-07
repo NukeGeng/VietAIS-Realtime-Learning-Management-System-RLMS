@@ -6,5 +6,6 @@
     <ProjectReference Include="../Academics/LearningPlatform.Academics.csproj" />
     <ProjectReference Include="../Classroom/LearningPlatform.Classroom.csproj" />
     <ProjectReference Include="../Identity/LearningPlatform.Identity.csproj" />
+    <ProjectReference Include="../Learning/LearningPlatform.Learning.csproj" />
   </ItemGroup>
 </Project>

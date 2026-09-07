@@ -12,13 +12,31 @@ public static class AssessmentConstants
         StableId($"activity-question:{activityId:D}:{questionVersionId:D}");
 
     public static Guid StudentActivityId(Guid activityId, Guid studentId) =>
-        StableId($"student-activity:{activityId:D}:{studentId:D}");
+        StudentActivityId(activityId, studentId, 1);
+
+    public static Guid StudentActivityId(Guid activityId, Guid studentId, int attemptNumber) =>
+        StableId($"student-activity:{activityId:D}:{studentId:D}:{attemptNumber}");
 
     public static Guid SubmissionId(Guid activityId, Guid studentId) =>
-        StableId($"submission:{activityId:D}:{studentId:D}");
+        SubmissionId(activityId, studentId, 1);
+
+    public static Guid SubmissionId(Guid activityId, Guid studentId, int attemptNumber) =>
+        StableId($"submission:{activityId:D}:{studentId:D}:{attemptNumber}");
 
     public static Guid ClassOverviewViewId(Guid learningClassId, Guid activityId) =>
         StableId($"class-overview:{learningClassId:D}:{activityId:D}");
+
+    public static Guid GradeItemId(Guid activityId) =>
+        StableId($"grade-item:{activityId:D}");
+
+    public static Guid GradeEntryId(Guid activityId, Guid studentId) =>
+        GradeEntryId(activityId, studentId, 1);
+
+    public static Guid GradeEntryId(Guid activityId, Guid studentId, int attemptNumber) =>
+        StableId($"grade-entry:{activityId:D}:{studentId:D}:{attemptNumber}");
+
+    public static Guid RubricId(Guid activityId) =>
+        StableId($"rubric:{activityId:D}");
 
     private static Guid StableId(string value)
     {

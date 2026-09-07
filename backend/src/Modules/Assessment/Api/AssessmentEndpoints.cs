@@ -69,6 +69,7 @@ public static class AssessmentEndpoints
         endpoints.MapPost("/api/assessment/activities/{activityId:guid}/attempt/submit",
                 SubmitAttemptAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.SubmitAssessmentActivities);
+        endpoints.MapGradingEndpoints();
     }
 
     private static async Task<IResult> ListQuestionBankItemsAsync(
@@ -251,6 +252,7 @@ public static class AssessmentEndpoints
         try
         {
             var times = ValidateActivityTimes(request.OpensAt, request.DueAt, request.TimeLimit);
+            var examPolicy = AssessmentRules.ValidateExamPolicy(request.Kind, request.ExamPolicy);
             var now = DateTimeOffset.UtcNow;
             var activity = new AssessmentActivity
             {
@@ -266,7 +268,8 @@ public static class AssessmentEndpoints
                 TimeLimit = times.TimeLimit,
                 CreatedBy = actor.UserId,
                 CreatedAt = now,
-                UpdatedAt = now
+                UpdatedAt = now,
+                ExamPolicy = examPolicy
             };
             session.Insert(activity);
             await session.SaveChangesAsync(cancellationToken);
@@ -599,6 +602,8 @@ public static class AssessmentEndpoints
         activity.LiveSessionId = liveSession?.Id;
         activity.PublishedAt = DateTimeOffset.UtcNow;
         activity.UpdatedAt = activity.PublishedAt.Value;
+        await GradingWorkflow.EnsureGradeItemAsync(session, activity, activity.PublishedAt.Value,
+            cancellationToken);
         session.Update(activity);
         await session.SaveChangesAsync(cancellationToken);
         return Results.Ok(AssessmentActivityResponse.From(activity));
@@ -695,22 +700,33 @@ public static class AssessmentEndpoints
             return Results.Conflict(new { error = "The activity is not currently open." });
         }
 
-        var attemptId = AssessmentConstants.StudentActivityId(activity.Id, actor!.UserId);
+        var latestAttempt = await FindLatestAttemptAsync(session, activity.Id, actor!.UserId,
+            cancellationToken);
+        var attemptNumber = latestAttempt?.AttemptNumber ?? 0;
+        if (latestAttempt is not null && latestAttempt.Status is StudentActivityStatus.InProgress or
+            StudentActivityStatus.Paused)
+        {
+            return Results.Ok(StudentActivityResponse.From(latestAttempt));
+        }
+
+        if (latestAttempt is not null && (!IsExamRetakeAllowed(activity, attemptNumber)))
+        {
+            return Results.Conflict(new { error = "This activity attempt is already finished." });
+        }
+
+        attemptNumber = Math.Max(attemptNumber + 1, 1);
+        var attemptId = AssessmentConstants.StudentActivityId(activity.Id, actor!.UserId,
+            attemptNumber);
         var stream = await session.Events.FetchForWriting<StudentActivity>(attemptId, cancellationToken);
         if (stream.Aggregate is not null)
         {
-            if (stream.Aggregate.Status is StudentActivityStatus.Submitted or StudentActivityStatus.Closed)
-            {
-                return Results.Conflict(new { error = "This activity attempt is already finished." });
-            }
-
             return Results.Ok(StudentActivityResponse.From(stream.Aggregate));
         }
 
         var logger = loggerFactory.CreateLogger("LearningPlatform.Assessment.Api");
         var now = DateTimeOffset.UtcNow;
         var startedEvent = new StudentActivityStarted(attemptId, actor.OrganizationId, actor.UserId,
-            activity.Id, activity.LearningClassId, activity.LiveSessionId, now);
+            activity.Id, activity.LearningClassId, activity.LiveSessionId, now, attemptNumber);
         var nextState = new StudentActivity();
         nextState.Apply(startedEvent);
         stream.AppendOne(startedEvent);
@@ -746,8 +762,8 @@ public static class AssessmentEndpoints
             return Results.Forbid();
         }
 
-        var attemptId = AssessmentConstants.StudentActivityId(activityId, actor!.UserId);
-        var attempt = await session.LoadAsync<StudentActivity>(attemptId, cancellationToken);
+        var attempt = await FindLatestAttemptAsync(session, activityId, actor!.UserId,
+            cancellationToken);
         return attempt is null ? Results.NotFound() : Results.Ok(StudentActivityResponse.From(attempt));
     }
 
@@ -787,7 +803,14 @@ public static class AssessmentEndpoints
             return Results.Conflict(new { error = "The activity is not currently open." });
         }
 
-        var attemptId = AssessmentConstants.StudentActivityId(activityId, actor!.UserId);
+        var currentAttempt = await FindLatestAttemptAsync(session, activityId, actor!.UserId,
+            cancellationToken);
+        if (currentAttempt is null)
+        {
+            return Results.Conflict(new { error = "Start the activity before opening a question." });
+        }
+
+        var attemptId = currentAttempt.Id;
         var stream = await session.Events.FetchForWriting<StudentActivity>(attemptId, cancellationToken);
         if (stream.Aggregate is null)
         {
@@ -863,7 +886,14 @@ public static class AssessmentEndpoints
             return Results.BadRequest(new { error = exception.Message });
         }
 
-        var attemptId = AssessmentConstants.StudentActivityId(activityId, actor!.UserId);
+        var currentAttempt = await FindLatestAttemptAsync(session, activityId, actor!.UserId,
+            cancellationToken);
+        if (currentAttempt is null)
+        {
+            return Results.Conflict(new { error = "Start the activity before saving an answer." });
+        }
+
+        var attemptId = currentAttempt.Id;
         var stream = await session.Events.FetchForWriting<StudentActivity>(attemptId, cancellationToken);
         if (stream.Aggregate is null)
         {
@@ -932,7 +962,14 @@ public static class AssessmentEndpoints
             return Results.Conflict(new { error = "The activity is not currently accepting submissions." });
         }
 
-        var attemptId = AssessmentConstants.StudentActivityId(activityId, actor!.UserId);
+        var currentAttempt = await FindLatestAttemptAsync(session, activityId, actor!.UserId,
+            cancellationToken);
+        if (currentAttempt is null)
+        {
+            return Results.Conflict(new { error = "Start the activity before submitting it." });
+        }
+
+        var attemptId = currentAttempt.Id;
         var stream = await session.Events.FetchForWriting<StudentActivity>(attemptId, cancellationToken);
         if (stream.Aggregate is null)
         {
@@ -941,8 +978,8 @@ public static class AssessmentEndpoints
 
         if (stream.Aggregate.Status == StudentActivityStatus.Submitted)
         {
-            var existing = await session.LoadAsync<Submission>(
-                AssessmentConstants.SubmissionId(activityId, actor.UserId), cancellationToken);
+            var existing = await session.LoadAsync<Submission>(AssessmentConstants.SubmissionId(
+                activityId, actor.UserId, stream.Aggregate.AttemptNumber), cancellationToken);
             return existing is null ? Results.Conflict(new { error = "The activity is already submitted." }) :
                 Results.Ok(SubmissionResponse.From(existing));
         }
@@ -961,11 +998,13 @@ public static class AssessmentEndpoints
         stream.AppendOne(submittedEvent);
         var submission = new Submission
         {
-            Id = AssessmentConstants.SubmissionId(activityId, actor.UserId),
+            Id = AssessmentConstants.SubmissionId(activityId, actor.UserId,
+                stream.Aggregate.AttemptNumber),
             OrganizationId = actor.OrganizationId,
             ActivityId = activityId,
             StudentId = actor.UserId,
             StudentActivityId = attemptId,
+            AttemptNumber = stream.Aggregate.AttemptNumber,
             SubmittedAt = now,
             Status = SubmissionStatus.Submitted,
             Version = checked((int)(stream.Aggregate.Version + 1)),
@@ -974,6 +1013,12 @@ public static class AssessmentEndpoints
                 .ToArray()
         };
         session.Insert(submission);
+        var gradeItem = await GradingWorkflow.EnsureGradeItemAsync(session, activity, now,
+            cancellationToken);
+        var automaticGrade = GradingRules.CalculateAutomaticGrade(activity, submission);
+        var gradeEntry = GradingWorkflow.CreateGradeEntry(activity, submission, gradeItem,
+            automaticGrade, now);
+        session.Insert(gradeEntry);
         await session.SaveChangesAsync(cancellationToken);
         await StudentActivityChangePublisher.PublishAsync(messageBus, logger,
             new StudentActivityChanged(actor.OrganizationId, attemptId, activity.Id, actor.UserId,
@@ -1039,6 +1084,22 @@ public static class AssessmentEndpoints
             (activity.TimeLimit is not { } limit || now <= attempt.StartedAt + limit);
     }
 
+    private static async Task<StudentActivity?> FindLatestAttemptAsync(IQuerySession session,
+        Guid activityId, Guid studentId, CancellationToken cancellationToken)
+    {
+        var attempts = await session.Query<StudentActivity>()
+            .Where(attempt => attempt.ActivityId == activityId && attempt.StudentId == studentId)
+            .OrderByDescending(attempt => attempt.AttemptNumber)
+            .ToListAsync(cancellationToken);
+        return attempts.FirstOrDefault();
+    }
+
+    private static bool IsExamRetakeAllowed(AssessmentActivity activity, int attemptNumber)
+    {
+        return activity.Kind == AssessmentActivityKind.Exam && activity.ExamPolicy is
+        { AllowRetake: true } policy && attemptNumber < policy.AttemptLimit;
+    }
+
     private static StudentActivity Clone(StudentActivity source) => new()
     {
         Id = source.Id,
@@ -1054,7 +1115,8 @@ public static class AssessmentEndpoints
         StartedAt = source.StartedAt,
         LastActivityAt = source.LastActivityAt,
         SubmittedAt = source.SubmittedAt,
-        Version = source.Version
+        Version = source.Version,
+        AttemptNumber = source.AttemptNumber
     };
 
     private static StudentAttemptDetailView StudentAttemptDetailViewFrom(StudentActivity activity,
@@ -1063,6 +1125,7 @@ public static class AssessmentEndpoints
             Id = activity.Id,
             OrganizationId = activity.OrganizationId,
             StudentId = activity.StudentId,
+            AttemptNumber = activity.AttemptNumber,
             ActivityId = activity.ActivityId,
             LearningClassId = activity.LearningClassId,
             LiveSessionId = activity.LiveSessionId,
@@ -1160,7 +1223,7 @@ public sealed record CreateQuestionVersionRequest(string Prompt, QuestionType Ty
 public sealed record QuestionOptionRequest(string Key, string Text);
 
 public sealed record CreateActivityRequest(string Title, string? Description, AssessmentActivityKind Kind,
-    DateTimeOffset? OpensAt, DateTimeOffset? DueAt, TimeSpan? TimeLimit);
+    DateTimeOffset? OpensAt, DateTimeOffset? DueAt, TimeSpan? TimeLimit, ExamPolicy? ExamPolicy = null);
 
 public sealed record AddActivityQuestionRequest(Guid QuestionVersionId, int Order, decimal Points);
 
@@ -1200,33 +1263,34 @@ public sealed record ActivityQuestionResponse(Guid Id, Guid QuestionVersionId, i
 public sealed record AssessmentActivityResponse(Guid Id, Guid LearningClassId, Guid? LiveSessionId,
     string Title, string Description, AssessmentActivityKind Kind, AssessmentActivityStatus Status,
     DateTimeOffset? OpensAt, DateTimeOffset? DueAt, TimeSpan? TimeLimit, DateTimeOffset? PublishedAt,
-    ActivityQuestionResponse[] Questions)
+    ActivityQuestionResponse[] Questions, ExamPolicy? ExamPolicy)
 {
     public static AssessmentActivityResponse From(AssessmentActivity activity) => new(activity.Id,
         activity.LearningClassId, activity.LiveSessionId, activity.Title, activity.Description, activity.Kind,
         activity.Status, activity.OpensAt, activity.DueAt, activity.TimeLimit, activity.PublishedAt,
-        activity.Questions.OrderBy(question => question.Order).Select(ActivityQuestionResponse.From).ToArray());
+        activity.Questions.OrderBy(question => question.Order).Select(ActivityQuestionResponse.From).ToArray(),
+        activity.ExamPolicy);
 }
 
 public sealed record StudentActivityResponse(Guid Id, Guid StudentId, Guid ActivityId,
     Guid LearningClassId, Guid? LiveSessionId, Guid? CurrentQuestionId, StudentActivityStatus Status,
     Dictionary<Guid, string> Answers, int AnsweredCount, DateTimeOffset StartedAt,
-    DateTimeOffset LastActivityAt, DateTimeOffset? SubmittedAt, long Version)
+    DateTimeOffset LastActivityAt, DateTimeOffset? SubmittedAt, long Version, int AttemptNumber)
 {
     public static StudentActivityResponse From(StudentActivity activity) => new(activity.Id,
         activity.StudentId, activity.ActivityId, activity.LearningClassId, activity.LiveSessionId,
         activity.CurrentQuestionId, activity.Status, new Dictionary<Guid, string>(activity.Answers),
         activity.AnsweredCount, activity.StartedAt, activity.LastActivityAt, activity.SubmittedAt,
-        activity.Version);
+        activity.Version, activity.AttemptNumber);
 }
 
 public sealed record SubmissionResponse(Guid Id, Guid ActivityId, Guid StudentId,
-    Guid StudentActivityId, DateTimeOffset SubmittedAt, SubmissionStatus Status, int Version,
-    SubmissionAnswer[] Answers)
+    Guid StudentActivityId, int AttemptNumber, DateTimeOffset SubmittedAt, SubmissionStatus Status,
+    int Version, SubmissionAnswer[] Answers)
 {
     public static SubmissionResponse From(Submission submission) => new(submission.Id, submission.ActivityId,
-        submission.StudentId, submission.StudentActivityId, submission.SubmittedAt, submission.Status,
-        submission.Version, submission.Answers);
+        submission.StudentId, submission.StudentActivityId, submission.AttemptNumber,
+        submission.SubmittedAt, submission.Status, submission.Version, submission.Answers);
 }
 
 public sealed record ClassOverviewResponse(Guid LearningClassId, Guid ActivityId, long Version,
@@ -1245,13 +1309,14 @@ public sealed record ClassOverviewStudentResponse(Guid StudentId, Guid AttemptId
 }
 
 public sealed record StudentAttemptDetailResponse(Guid Id, Guid OrganizationId, Guid StudentId,
-    Guid ActivityId, Guid LearningClassId, Guid? LiveSessionId, Guid? CurrentQuestionId,
+    int AttemptNumber, Guid ActivityId, Guid LearningClassId, Guid? LiveSessionId, Guid? CurrentQuestionId,
     StudentActivityStatus Status, Dictionary<Guid, string> Answers, int AnsweredCount,
     int TotalQuestions, decimal Progress, DateTimeOffset StartedAt, DateTimeOffset LastActivityAt,
     DateTimeOffset? SubmittedAt, long Version)
 {
     public static StudentAttemptDetailResponse From(StudentAttemptDetailView detail) => new(detail.Id,
-        detail.OrganizationId, detail.StudentId, detail.ActivityId, detail.LearningClassId,
+        detail.OrganizationId, detail.StudentId, detail.AttemptNumber, detail.ActivityId,
+        detail.LearningClassId,
         detail.LiveSessionId, detail.CurrentQuestionId, detail.Status,
         new Dictionary<Guid, string>(detail.Answers), detail.AnsweredCount, detail.TotalQuestions,
         detail.Progress, detail.StartedAt, detail.LastActivityAt, detail.SubmittedAt, detail.Version);

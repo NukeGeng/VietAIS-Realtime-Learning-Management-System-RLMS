@@ -51,7 +51,8 @@ public enum AssessmentActivityKind
 {
     Assignment,
     Exercise,
-    Quiz
+    Quiz,
+    Exam
 }
 
 public enum AssessmentActivityStatus
@@ -80,6 +81,16 @@ public sealed class AssessmentActivity
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public List<ActivityQuestion> Questions { get; set; } = [];
+    public ExamPolicy? ExamPolicy { get; set; }
+}
+
+public sealed class ExamPolicy
+{
+    public int AttemptLimit { get; set; } = 1;
+    public bool AllowRetake { get; set; }
+    public bool ShuffleQuestions { get; set; }
+    public decimal? PassingScore { get; set; }
+    public DateTimeOffset? ResultsReleaseAt { get; set; }
 }
 
 /// <summary>
@@ -108,6 +119,7 @@ public sealed class Submission
     public Guid OrganizationId { get; set; }
     public Guid ActivityId { get; set; }
     public Guid StudentId { get; set; }
+    public int AttemptNumber { get; set; } = 1;
     public Guid StudentActivityId { get; set; }
     public DateTimeOffset SubmittedAt { get; set; }
     public SubmissionStatus Status { get; set; }
@@ -147,6 +159,7 @@ public sealed class StudentAttemptDetailView
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
     public Guid StudentId { get; set; }
+    public int AttemptNumber { get; set; } = 1;
     public Guid ActivityId { get; set; }
     public Guid LearningClassId { get; set; }
     public Guid? LiveSessionId { get; set; }

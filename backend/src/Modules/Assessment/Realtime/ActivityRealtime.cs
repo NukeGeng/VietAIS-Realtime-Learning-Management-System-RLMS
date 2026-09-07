@@ -34,13 +34,14 @@ public sealed record StudentActivityChanged(Guid OrganizationId, Guid AttemptId,
 public sealed record StudentActivityRealtimeState(Guid AttemptId, Guid OrganizationId, Guid StudentId,
     Guid ActivityId, Guid LearningClassId, Guid? LiveSessionId, Guid? CurrentQuestionId,
     StudentActivityStatus Status, Dictionary<Guid, string> Answers, int AnsweredCount,
-    DateTimeOffset StartedAt, DateTimeOffset LastActivityAt, DateTimeOffset? SubmittedAt, long Version)
+    DateTimeOffset StartedAt, DateTimeOffset LastActivityAt, DateTimeOffset? SubmittedAt, long Version,
+    int AttemptNumber = 1)
 {
     public static StudentActivityRealtimeState From(StudentActivity activity) => new(activity.Id,
         activity.OrganizationId, activity.StudentId, activity.ActivityId, activity.LearningClassId,
         activity.LiveSessionId, activity.CurrentQuestionId, activity.Status,
         new Dictionary<Guid, string>(activity.Answers), activity.AnsweredCount, activity.StartedAt,
-        activity.LastActivityAt, activity.SubmittedAt, activity.Version);
+        activity.LastActivityAt, activity.SubmittedAt, activity.Version, activity.AttemptNumber);
 }
 
 public sealed record ActivityOverviewDelta(Guid StudentId, Guid AttemptId, Guid? CurrentQuestionId,

@@ -19,6 +19,10 @@ public static class IdentityAuthorizationPolicies
     public const string ManageAttendance = "classroom-attendance-manage";
     public const string ManageAssessmentActivities = "assessment-activities-manage";
     public const string SubmitAssessmentActivities = "assessment-activities-submit";
+    public const string GradeAssessmentSubmissions = "assessment-submissions-grade";
+    public const string ManageGradebook = "assessment-gradebook-manage";
+    public const string ReadAssessmentResults = "assessment-results-read";
+    public const string ReadLearningProgress = "learning-progress-read";
 
     public static void AddIdentityPolicies(AuthorizationOptions options)
     {
@@ -38,6 +42,10 @@ public static class IdentityAuthorizationPolicies
         AddPermissionPolicy(options, ManageAttendance, PermissionCatalog.ManageAttendance);
         AddPermissionPolicy(options, ManageAssessmentActivities, PermissionCatalog.ManageAssessmentActivities);
         AddPermissionPolicy(options, SubmitAssessmentActivities, PermissionCatalog.SubmitAssessmentActivities);
+        AddPermissionPolicy(options, GradeAssessmentSubmissions, PermissionCatalog.GradeAssessmentSubmissions);
+        AddPermissionPolicy(options, ManageGradebook, PermissionCatalog.ManageGradebook);
+        AddPermissionPolicy(options, ReadAssessmentResults, PermissionCatalog.ReadAssessmentResults);
+        AddPermissionPolicy(options, ReadLearningProgress, PermissionCatalog.ReadLearningProgress);
     }
 
     private static void AddPermissionPolicy(AuthorizationOptions options, string policyName,

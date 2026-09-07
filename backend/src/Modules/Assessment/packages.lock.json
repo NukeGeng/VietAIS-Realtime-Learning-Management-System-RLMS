@@ -195,6 +195,15 @@
           "Npgsql": "[9.0.4, )"
         }
       },
+      "learningplatform.learning": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
+        }
+      },
       "Npgsql": {
         "type": "CentralTransitive",
         "requested": "[9.0.4, )",

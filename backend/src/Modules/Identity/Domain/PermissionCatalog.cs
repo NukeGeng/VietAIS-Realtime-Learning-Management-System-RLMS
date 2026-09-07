@@ -18,6 +18,10 @@ public static class PermissionCatalog
     public const string ManageAttendance = "classroom.attendance.manage";
     public const string ManageAssessmentActivities = "assessment.activities.manage";
     public const string SubmitAssessmentActivities = "assessment.activities.submit";
+    public const string GradeAssessmentSubmissions = "assessment.submissions.grade";
+    public const string ManageGradebook = "assessment.gradebook.manage";
+    public const string ReadAssessmentResults = "assessment.results.read";
+    public const string ReadLearningProgress = "learning.progress.read";
 
     public static readonly string[] Administrator =
     [
@@ -25,9 +29,9 @@ public static class PermissionCatalog
         ManageCourses, ReadCourses, ManageClasses, ReadClasses, ManageEnrollments, ReadEnrollments,
         ManageScheduling, ReadScheduling, ManageLiveSessions, JoinLiveSessions,
         "classroom.activity.publish", "classroom.activity.submit", ManageAttendance,
-        ManageAssessmentActivities, SubmitAssessmentActivities, "assessment.submissions.grade",
-        "assessment.gradebook.manage", "assessment.results.read", "assessment.essays.manage",
-        "learning.progress.read", "learning.resources.manage", "communication.announcements.manage",
+        ManageAssessmentActivities, SubmitAssessmentActivities, GradeAssessmentSubmissions,
+        ManageGradebook, ReadAssessmentResults, "assessment.essays.manage",
+        ReadLearningProgress, "learning.resources.manage", "communication.announcements.manage",
         "communication.notifications.read", "reporting.classes.read", "reporting.students.read"
     ];
 
@@ -37,8 +41,9 @@ public static class PermissionCatalog
         ManageScheduling, ReadScheduling,
         ManageLiveSessions, JoinLiveSessions, "classroom.activity.publish", ManageAttendance,
         SubmitAssessmentActivities,
-        ManageAssessmentActivities, "assessment.submissions.grade", "assessment.gradebook.manage",
-        "assessment.results.read", "assessment.essays.manage", "learning.resources.manage",
+        ManageAssessmentActivities, GradeAssessmentSubmissions, ManageGradebook,
+        ReadAssessmentResults, "assessment.essays.manage", ReadLearningProgress,
+        "learning.resources.manage",
         "communication.announcements.manage", "communication.notifications.read",
         "reporting.classes.read", "reporting.students.read"
     ];
@@ -46,7 +51,7 @@ public static class PermissionCatalog
     public static readonly string[] Student =
     [
         ReadClasses, ReadEnrollments, JoinLiveSessions, "classroom.activity.submit",
-        SubmitAssessmentActivities, "assessment.results.read", "learning.progress.read",
+        SubmitAssessmentActivities, ReadAssessmentResults, ReadLearningProgress,
         "communication.notifications.read"
     ];
 

@@ -6,6 +6,7 @@ using LearningPlatform.Assessment.Domain;
 using LearningPlatform.Classroom.Domain;
 using LearningPlatform.Classroom.Api;
 using LearningPlatform.Assessment.Realtime;
+using LearningPlatform.Learning.Api;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 
@@ -141,6 +142,70 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         Assert.Equal(setup.Activity.Id, submission!.ActivityId);
         Assert.Contains(submission.Answers, answer => answer.QuestionId == questionId && answer.Value == "B");
 
+        using var gradeBeforePublish = await setup.Teacher.GetAsync(
+            $"/api/assessment/submissions/{submission.Id:D}/grade");
+        Assert.Equal(HttpStatusCode.OK, gradeBeforePublish.StatusCode);
+        var automaticGrade = await gradeBeforePublish.Content.ReadFromJsonAsync<GradeEntryResponse>();
+        Assert.NotNull(automaticGrade);
+        Assert.Equal(5m, automaticGrade!.Score);
+        Assert.True(automaticGrade.IsComplete);
+        Assert.Equal(GradeEntryStatus.Draft, automaticGrade.Status);
+        Assert.Equal(GradeSource.Automatic, automaticGrade.Source);
+
+        using var hiddenResult = await setup.Student.GetAsync(
+            $"/api/assessment/activities/{setup.Activity.Id:D}/result");
+        Assert.Equal(HttpStatusCode.NotFound, hiddenResult.StatusCode);
+        using var studentGradeAttempt = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/grade-entries/{automaticGrade.Id:D}/publish", new { });
+        Assert.Equal(HttpStatusCode.Forbidden, studentGradeAttempt.StatusCode);
+
+        using var publishGrade = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/grade-entries/{automaticGrade.Id:D}/publish", new { });
+        Assert.Equal(HttpStatusCode.OK, publishGrade.StatusCode);
+        var publishedGrade = await publishGrade.Content.ReadFromJsonAsync<GradeEntryResponse>();
+        Assert.Equal(GradeEntryStatus.Published, publishedGrade!.Status);
+
+        using var teacherGradebook = await setup.Teacher.GetAsync(
+            $"/api/assessment/classes/{setup.ClassId:D}/gradebook");
+        Assert.Equal(HttpStatusCode.OK, teacherGradebook.StatusCode);
+        var classGradebook = await teacherGradebook.Content.ReadFromJsonAsync<GradebookResponse>();
+        var teacherCell = Assert.Single(Assert.Single(classGradebook!.Students).Entries);
+        Assert.Equal(GradeEntryStatus.Published, teacherCell.Status);
+
+        using var studentResult = await setup.Student.GetAsync(
+            $"/api/assessment/activities/{setup.Activity.Id:D}/result");
+        Assert.Equal(HttpStatusCode.OK, studentResult.StatusCode);
+        var result = await studentResult.Content.ReadFromJsonAsync<StudentResultResponse>();
+        Assert.Equal(5m, result!.Score);
+
+        using var studentGradebook = await setup.Student.GetAsync(
+            $"/api/assessment/classes/{setup.ClassId:D}/gradebook/me");
+        Assert.Equal(HttpStatusCode.OK, studentGradebook.StatusCode);
+        var ownGradebook = await studentGradebook.Content.ReadFromJsonAsync<GradebookResponse>();
+        var ownCell = Assert.Single(Assert.Single(ownGradebook!.Students).Entries);
+        Assert.Equal(5m, ownCell.Score);
+
+        LearningProgressResponse? progress = null;
+        using (var progressTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (progress is null || !progress.Entries.Any(entry =>
+                       entry.ActivityId == setup.Activity.Id && entry.Completion == 100m))
+            {
+                using var studentProgress = await setup.Student.GetAsync(
+                    $"/api/learning/classes/{setup.ClassId:D}/progress/me", progressTimeout.Token);
+                Assert.Equal(HttpStatusCode.OK, studentProgress.StatusCode);
+                progress = await studentProgress.Content.ReadFromJsonAsync<LearningProgressResponse>(
+                    progressTimeout.Token);
+                if (progress!.Entries.Any(entry => entry.ActivityId == setup.Activity.Id &&
+                        entry.Completion == 100m))
+                {
+                    break;
+                }
+
+                await Task.Delay(100, progressTimeout.Token);
+            }
+        }
+
         using var attempt = await setup.Student.GetAsync(
             $"/api/assessment/activities/{setup.Activity.Id:D}/attempt");
         Assert.Equal(HttpStatusCode.OK, attempt.StatusCode);
@@ -218,6 +283,86 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         using var resume = await PostWithCsrfAsync(setup.Teacher,
             $"/api/assessment/activities/{setup.Activity.Id:D}/resume", new { });
         Assert.Equal(HttpStatusCode.OK, resume.StatusCode);
+    }
+
+    [Fact]
+    public async Task Teacher_must_manually_grade_subjective_submission_before_publishing()
+    {
+        var setup = await CreateActivitySetupAsync(QuestionType.LongText);
+        var questionId = setup.Activity.Questions[0].Id;
+        using var createRubric = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/rubric", new
+            {
+                Criteria = new[]
+                {
+                    new
+                    {
+                        Id = Guid.Empty,
+                        Name = "Reasoning",
+                        Description = "Evidence and reasoning",
+                        MaxPoints = 5m,
+                        Order = 0
+                    }
+                }
+            });
+        createRubric.EnsureSuccessStatusCode();
+        var rubric = (await createRubric.Content.ReadFromJsonAsync<RubricResponse>())!;
+        var criterionId = Assert.Single(rubric.Criteria).Id;
+
+        using var start = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        start.EnsureSuccessStatusCode();
+        using var open = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/questions/{questionId:D}/open",
+            new { });
+        open.EnsureSuccessStatusCode();
+        using var answer = await PutWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/answers/{questionId:D}",
+            new SaveAnswerRequest("A considered response"));
+        answer.EnsureSuccessStatusCode();
+        using var submit = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/submit", new { });
+        submit.EnsureSuccessStatusCode();
+        var submission = (await submit.Content.ReadFromJsonAsync<SubmissionResponse>())!;
+
+        using var draftResponse = await setup.Teacher.GetAsync(
+            $"/api/assessment/submissions/{submission.Id:D}/grade");
+        var draft = (await draftResponse.Content.ReadFromJsonAsync<GradeEntryResponse>())!;
+        Assert.False(draft.IsComplete);
+        Assert.Equal(GradeEntryStatus.Draft, draft.Status);
+        using var blockedPublish = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/grade-entries/{draft.Id:D}/publish", new { });
+        Assert.Equal(HttpStatusCode.Conflict, blockedPublish.StatusCode);
+
+        using var grade = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/submissions/{submission.Id:D}/grade", new
+            {
+                Questions = new[]
+                {
+                    new
+                    {
+                        QuestionId = questionId,
+                        Score = 4m,
+                        Feedback = "Clear explanation",
+                        RubricCriterionId = criterionId
+                    }
+                },
+                Feedback = "Good work",
+                RubricId = rubric.Id
+            });
+        Assert.Equal(HttpStatusCode.OK, grade.StatusCode);
+        var manual = (await grade.Content.ReadFromJsonAsync<GradeEntryResponse>())!;
+        Assert.Equal(GradeSource.Manual, manual.Source);
+        Assert.True(manual.IsComplete);
+        Assert.Equal(4m, manual.Score);
+
+        using var publish = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/grade-entries/{manual.Id:D}/publish", new { });
+        Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
+        using var result = await setup.Student.GetAsync(
+            $"/api/assessment/activities/{setup.Activity.Id:D}/result");
+        Assert.Equal(HttpStatusCode.OK, result.StatusCode);
+        Assert.Equal(4m, (await result.Content.ReadFromJsonAsync<StudentResultResponse>())!.Score);
     }
 
     [Fact]
@@ -338,7 +483,40 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         await connection.StopAsync(timeout.Token);
     }
 
-    private async Task<ActivitySetup> CreateActivitySetupAsync(bool includeSecondStudent = false)
+    [Fact]
+    public async Task Exam_enforces_attempt_limit_and_creates_a_separate_attempt_for_a_retake()
+    {
+        var setup = await CreateActivitySetupAsync(activityKind: AssessmentActivityKind.Exam,
+            examPolicy: new ExamPolicy { AttemptLimit = 2, AllowRetake = true, PassingScore = 60m });
+
+        using var startOne = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        startOne.EnsureSuccessStatusCode();
+        var first = (await startOne.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
+        Assert.Equal(1, first.AttemptNumber);
+        using var submitOne = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/submit", new { });
+        submitOne.EnsureSuccessStatusCode();
+
+        using var startTwo = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        startTwo.EnsureSuccessStatusCode();
+        var second = (await startTwo.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
+        Assert.Equal(2, second.AttemptNumber);
+        Assert.NotEqual(first.Id, second.Id);
+        using var submitTwo = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/submit", new { });
+        submitTwo.EnsureSuccessStatusCode();
+
+        using var startThree = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        Assert.Equal(HttpStatusCode.Conflict, startThree.StatusCode);
+    }
+
+    private async Task<ActivitySetup> CreateActivitySetupAsync(
+        QuestionType questionType = QuestionType.SingleChoice, bool includeSecondStudent = false,
+        AssessmentActivityKind activityKind = AssessmentActivityKind.Quiz,
+        ExamPolicy? examPolicy = null)
     {
         var organization = await fixture.EnsureBootstrappedAsync();
         var teacher = fixture.Client();
@@ -382,19 +560,25 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
                 await fixture.LoginCookieAsync(secondEmail, "second activity student password"));
         }
 
+        var questionOptions = questionType is QuestionType.SingleChoice or QuestionType.MultipleChoice
+            ? new object[]
+            {
+                new { Key = "A", Text = "3" },
+                new { Key = "B", Text = "4" }
+            }
+            : [];
+        var correctAnswers = questionType is QuestionType.SingleChoice or QuestionType.MultipleChoice
+            ? new[] { "B" }
+            : [];
         using var createQuestion = await PostWithCsrfAsync(teacher, "/api/assessment/question-bank", new
         {
             CourseId = course.Id,
             Topic = "Arithmetic",
             Difficulty = "Easy",
             Prompt = "What is two plus two?",
-            Type = (int)QuestionType.SingleChoice,
-            Options = new[]
-            {
-                new { Key = "A", Text = "3" },
-                new { Key = "B", Text = "4" }
-            },
-            CorrectAnswers = new[] { "B" }
+            Type = (int)questionType,
+            Options = questionOptions,
+            CorrectAnswers = correctAnswers,
         });
         createQuestion.EnsureSuccessStatusCode();
         var question = (await createQuestion.Content.ReadFromJsonAsync<QuestionBankItemDetailResponse>())!;
@@ -405,10 +589,11 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
             {
                 Title = "Arithmetic check",
                 Description = "A short quiz",
-                Kind = (int)AssessmentActivityKind.Quiz,
+                Kind = (int)activityKind,
                 OpensAt = (DateTimeOffset?)null,
                 DueAt = (DateTimeOffset?)null,
-                TimeLimit = (TimeSpan?)null
+                TimeLimit = (TimeSpan?)null,
+                ExamPolicy = examPolicy
             });
         createActivity.EnsureSuccessStatusCode();
         var activity = (await createActivity.Content.ReadFromJsonAsync<AssessmentActivityResponse>())!;
