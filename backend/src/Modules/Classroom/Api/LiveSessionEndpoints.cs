@@ -209,6 +209,23 @@ public static class LiveSessionEndpoints
             liveSession.Status = LiveSessionStatus.Ended;
             liveSession.EndedAt = DateTimeOffset.UtcNow;
             liveSession.UpdatedAt = DateTimeOffset.UtcNow;
+
+            // A schedule represents the planned occurrence that this live
+            // session fulfils. Close it in the same transaction so a completed
+            // occurrence cannot be rescheduled or used to create another
+            // session after the room has ended.
+            if (liveSession.ClassScheduleId is { } scheduleId)
+            {
+                var schedule = await session.LoadAsync<ClassSchedule>(scheduleId, cancellationToken);
+                if (schedule is not null && schedule.LearningClassId == liveSession.LearningClassId &&
+                    schedule.Status is ScheduleStatus.Scheduled or ScheduleStatus.Rescheduled)
+                {
+                    schedule.Status = ScheduleStatus.Completed;
+                    schedule.UpdatedAt = liveSession.EndedAt.Value;
+                    session.Update(schedule);
+                }
+            }
+
             session.Update(liveSession);
             await session.SaveChangesAsync(cancellationToken);
             await snapshotCache.InvalidateAsync(liveSession.OrganizationId, liveSession.Id);

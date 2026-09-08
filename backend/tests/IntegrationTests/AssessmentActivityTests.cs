@@ -940,9 +940,24 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         startOne.EnsureSuccessStatusCode();
         var first = (await startOne.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
         Assert.Equal(1, first.AttemptNumber);
+        var questionId = setup.Activity.Questions[0].Id;
+        using var answerOne = await PutWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/answers/{questionId:D}",
+            new SaveAnswerRequest("B"));
+        answerOne.EnsureSuccessStatusCode();
         using var submitOne = await PostWithCsrfAsync(setup.Student,
             $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/submit", new { });
         submitOne.EnsureSuccessStatusCode();
+        var submissionOne = (await submitOne.Content.ReadFromJsonAsync<SubmissionResponse>())!;
+
+        using var firstGradeDraft = await setup.Teacher.GetAsync(
+            $"/api/assessment/submissions/{submissionOne.Id:D}/grade");
+        firstGradeDraft.EnsureSuccessStatusCode();
+        var firstGrade = (await firstGradeDraft.Content.ReadFromJsonAsync<GradeEntryResponse>())!;
+        Assert.Equal(5m, firstGrade.Score);
+        using var publishFirstGrade = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/grade-entries/{firstGrade.Id:D}/publish", new { });
+        publishFirstGrade.EnsureSuccessStatusCode();
 
         using var startTwo = await PostWithCsrfAsync(setup.Student,
             $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
@@ -975,6 +990,68 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         using var submitTwo = await PostWithCsrfAsync(setup.Student,
             $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/submit", new { });
         submitTwo.EnsureSuccessStatusCode();
+        var submissionTwo = (await submitTwo.Content.ReadFromJsonAsync<SubmissionResponse>())!;
+        using var secondGradeDraft = await setup.Teacher.GetAsync(
+            $"/api/assessment/submissions/{submissionTwo.Id:D}/grade");
+        secondGradeDraft.EnsureSuccessStatusCode();
+        var secondGrade = (await secondGradeDraft.Content.ReadFromJsonAsync<GradeEntryResponse>())!;
+        Assert.Equal(0m, secondGrade.Score);
+        using var publishSecondGrade = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/grade-entries/{secondGrade.Id:D}/publish", new { });
+        publishSecondGrade.EnsureSuccessStatusCode();
+
+        LearningProgressResponse? retakeProgress = null;
+        using (var progressTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (retakeProgress is null || !retakeProgress.Entries.Any(entry =>
+                       entry.ActivityId == setup.Activity.Id && entry.Score == secondGrade.Score))
+            {
+                using var progressResponse = await setup.Student.GetAsync(
+                    $"/api/learning/classes/{setup.ClassId:D}/progress/me", progressTimeout.Token);
+                progressResponse.EnsureSuccessStatusCode();
+                retakeProgress = await progressResponse.Content.ReadFromJsonAsync<LearningProgressResponse>(
+                    progressTimeout.Token);
+                if (retakeProgress is not null && retakeProgress.Entries.Any(entry =>
+                        entry.ActivityId == setup.Activity.Id && entry.Score == secondGrade.Score))
+                {
+                    break;
+                }
+
+                await Task.Delay(100, progressTimeout.Token);
+            }
+        }
+
+        using var adjustSecondGrade = await PostWithCsrfAsync(setup.Teacher,
+            $"/api/assessment/grade-entries/{secondGrade.Id:D}/adjust", new
+            {
+                Score = 3m,
+                Reason = "Correcting the second attempt after review."
+            });
+        Assert.Equal(HttpStatusCode.OK, adjustSecondGrade.StatusCode);
+
+        LearningProgressResponse? fallbackProgress = null;
+        using (var progressTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (fallbackProgress is null || !fallbackProgress.Entries.Any(entry =>
+                       entry.ActivityId == setup.Activity.Id && entry.Score == firstGrade.Score))
+            {
+                using var progressResponse = await setup.Student.GetAsync(
+                    $"/api/learning/classes/{setup.ClassId:D}/progress/me", progressTimeout.Token);
+                progressResponse.EnsureSuccessStatusCode();
+                fallbackProgress = await progressResponse.Content.ReadFromJsonAsync<LearningProgressResponse>(
+                    progressTimeout.Token);
+                if (fallbackProgress is not null && fallbackProgress.Entries.Any(entry =>
+                        entry.ActivityId == setup.Activity.Id && entry.Score == firstGrade.Score))
+                {
+                    break;
+                }
+
+                await Task.Delay(100, progressTimeout.Token);
+            }
+        }
+        var fallbackEntry = Assert.Single(fallbackProgress!.Entries,
+            entry => entry.ActivityId == setup.Activity.Id);
+        Assert.Equal(firstGrade.Score, fallbackEntry.Score);
 
         using var startThree = await PostWithCsrfAsync(setup.Student,
             $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });

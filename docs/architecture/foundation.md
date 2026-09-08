@@ -78,6 +78,9 @@ SignalR hub use Redis only for short-lived presence keys, with organization and
 session IDs in the key. Redis failures are logged and reported as
 `PresenceRegistered = false` without failing the durable session or join response.
 The hub is scoped to one session route and broadcasts participant metadata only.
+When a session linked to a schedule ends, the linked schedule is marked completed
+in the same durable transaction, preventing the finished occurrence from being
+rescheduled or reused for another live session.
 
 ## Phase 2 classroom interactions
 
@@ -180,6 +183,9 @@ snapshot while a drop refreshes the class count. Grade-item weight changes enque
 refresh for the class and its active students. The Learning progress handler emits a
 follow-up reporting refresh after its own grade projection commits, preventing the
 independent queues from leaving a report permanently ahead of progress state.
+When an adjustment withdraws a retake, the Learning projection applies the
+effective older published attempt and ignores a delayed visibility event that is
+older than the current progress state.
 Published or archived course content also enqueues a tenant-scoped refresh for the
 active students in every class using that course, keeping lesson counts and completion
 percentages aligned with the published lesson set.

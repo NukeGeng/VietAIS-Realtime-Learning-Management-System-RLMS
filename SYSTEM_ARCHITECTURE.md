@@ -412,6 +412,11 @@ thêm một reporting refresh sau khi projection điểm đã commit để tách
 learning và queue reporting. Khi lesson/module/course content được publish hoặc
 archive, Academics phát refresh tenant-scoped cho các student active trong mọi class
 dùng course đó để lesson count và completion percentage không bị stale.
+Khi adjustment rút attempt retake đã publish về draft, Learning cũng chuyển progress
+về attempt published hiệu lực còn lại; visibility event cũ đến muộn không được ghi đè
+state mới.
+Nếu `LiveSession` gắn với `ClassSchedule`, kết thúc phiên cũng chuyển schedule sang
+`Completed` trong cùng transaction để occurrence đã hoàn tất không bị dùng lại.
 
 ---
 

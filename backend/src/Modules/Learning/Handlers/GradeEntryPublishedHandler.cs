@@ -16,7 +16,7 @@ public static class GradeEntryPublishedHandler
             message.CourseId, message.StudentId, message.ActivityId, message.GradeItemId,
             message.GradeEntryId, message.ActivityTitle, message.AttemptNumber, message.Score,
             message.MaxScore, message.GradeVersion, message.PublishedAt,
-            message.ResultsReleaseAt, cancellationToken);
+            message.ResultsReleaseAt, allowReplacement: false, cancellationToken: cancellationToken);
         await session.SaveChangesAsync(cancellationToken);
         await PublishReportingRefreshAsync(messageBus, loggerFactory,
             new StudentProgressChangedForReporting(message.OrganizationId, message.LearningClassId,
@@ -30,7 +30,8 @@ public static class GradeEntryPublishedHandler
         var progressId = LearningConstants.ProgressId(message.ActivityId, message.StudentId);
         if (!message.IsPublished)
         {
-            if (await session.LoadAsync<StudentProgressRecord>(progressId, cancellationToken) is { } progress)
+            if (await session.LoadAsync<StudentProgressRecord>(progressId, cancellationToken) is { } progress &&
+                message.ChangedAt >= progress.UpdatedAt)
             {
                 session.Delete(progress);
                 await session.SaveChangesAsync(cancellationToken);
@@ -46,7 +47,7 @@ public static class GradeEntryPublishedHandler
             message.CourseId, message.StudentId, message.ActivityId, Guid.Empty,
             message.GradeEntryId, message.ActivityTitle, message.AttemptNumber, message.Score,
             message.MaxScore, message.GradeVersion, message.ChangedAt,
-            message.ResultsReleaseAt, cancellationToken);
+            message.ResultsReleaseAt, allowReplacement: true, cancellationToken: cancellationToken);
         await session.SaveChangesAsync(cancellationToken);
         await PublishReportingRefreshAsync(messageBus, loggerFactory,
             new StudentProgressChangedForReporting(message.OrganizationId, message.LearningClassId,
@@ -74,6 +75,7 @@ public static class GradeEntryPublishedHandler
         Guid learningClassId, Guid? courseId, Guid studentId, Guid activityId, Guid gradeItemId,
         Guid gradeEntryId, string activityTitle, int attemptNumber, decimal score, decimal maxScore,
         int gradeVersion, DateTimeOffset changedAt, DateTimeOffset? resultsReleaseAt,
+        bool allowReplacement,
         CancellationToken cancellationToken)
     {
         var progressId = LearningConstants.ProgressId(activityId, studentId);
@@ -93,8 +95,12 @@ public static class GradeEntryPublishedHandler
             };
         }
 
-        if (progress.AttemptNumber > attemptNumber ||
-            progress.AttemptNumber == attemptNumber && progress.Version >= gradeVersion)
+        // Visibility events may intentionally move back to an older attempt,
+        // but a delayed event must not overwrite a newer projection state.
+        var isOlderVisibilityChange = allowReplacement && changedAt < progress.UpdatedAt;
+        if ((progress.AttemptNumber == attemptNumber && progress.Version >= gradeVersion) ||
+            (!allowReplacement && progress.AttemptNumber > attemptNumber) ||
+            isOlderVisibilityChange)
         {
             return;
         }

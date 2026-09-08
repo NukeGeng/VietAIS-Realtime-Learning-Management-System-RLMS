@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using LearningPlatform.Academics.Api;
+using LearningPlatform.Academics.Domain;
 using LearningPlatform.Classroom.Api;
 using LearningPlatform.Classroom.Domain;
 using LearningPlatform.Classroom.Presence;
@@ -157,6 +158,73 @@ public sealed class LiveSessionTests(FoundationFixture fixture) : IClassFixture<
         using var afterEnd = await PostWithCsrfAsync(studentClient,
             $"/api/classroom/sessions/{scheduled.Id:D}/join", new { });
         Assert.Equal(HttpStatusCode.Conflict, afterEnd.StatusCode);
+    }
+
+    [Fact]
+    public async Task Ending_a_scheduled_session_completes_its_schedule()
+    {
+        var organization = await fixture.EnsureBootstrappedAsync();
+        using var teacher = await AuthenticatedClientAsync();
+        var course = await CreatePublishedCourseAsync(teacher);
+        var learningClass = await CreateClassAsync(teacher, course.Id);
+
+        using var assignment = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/teachers", new
+            {
+                TeacherId = organization.AdministratorId
+            });
+        assignment.EnsureSuccessStatusCode();
+
+        var startsAt = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var endsAt = startsAt.AddMinutes(60);
+        using var createSchedule = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/schedules", new
+            {
+                TeacherId = organization.AdministratorId,
+                StartsAt = startsAt,
+                EndsAt = endsAt,
+                Recurrence = (string?)null
+            });
+        Assert.Equal(HttpStatusCode.Created, createSchedule.StatusCode);
+        var schedule = (await createSchedule.Content.ReadFromJsonAsync<ScheduleResponse>())!;
+
+        using var createSession = await PostWithCsrfAsync(teacher,
+            $"/api/classroom/classes/{learningClass.Id:D}/sessions", new
+            {
+                TeacherId = organization.AdministratorId,
+                ClassScheduleId = schedule.Id
+            });
+        Assert.Equal(HttpStatusCode.Created, createSession.StatusCode);
+        var liveSession = (await createSession.Content.ReadFromJsonAsync<LiveSessionResponse>())!;
+
+        using var start = await PostWithCsrfAsync(teacher,
+            $"/api/classroom/sessions/{liveSession.Id:D}/start", new { });
+        start.EnsureSuccessStatusCode();
+        using var end = await PostWithCsrfAsync(teacher,
+            $"/api/classroom/sessions/{liveSession.Id:D}/end", new { });
+        Assert.Equal(HttpStatusCode.OK, end.StatusCode);
+
+        var schedules = await teacher.GetFromJsonAsync<ScheduleResponse[]>(
+            $"/api/academics/classes/{learningClass.Id:D}/schedules");
+        var completed = Assert.Single(schedules!, value => value.Id == schedule.Id);
+        Assert.Equal(ScheduleStatus.Completed, completed.Status);
+
+        using var reschedule = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/schedules/{schedule.Id:D}/reschedule", new
+            {
+                StartsAt = endsAt.AddHours(1),
+                EndsAt = endsAt.AddHours(2),
+                Recurrence = (string?)null
+            });
+        Assert.Equal(HttpStatusCode.Conflict, reschedule.StatusCode);
+
+        using var duplicateSession = await PostWithCsrfAsync(teacher,
+            $"/api/classroom/classes/{learningClass.Id:D}/sessions", new
+            {
+                TeacherId = organization.AdministratorId,
+                ClassScheduleId = schedule.Id
+            });
+        Assert.Equal(HttpStatusCode.Conflict, duplicateSession.StatusCode);
     }
 
     [Fact]
