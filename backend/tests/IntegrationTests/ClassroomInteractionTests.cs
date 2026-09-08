@@ -251,6 +251,47 @@ public sealed class ClassroomInteractionTests(FoundationFixture fixture) : IClas
         Assert.Equal(1, absentStudentReport!.AttendanceAbsentCount);
     }
 
+    [Fact]
+    public async Task Late_join_message_does_not_reopen_attendance_after_session_end()
+    {
+        var setup = await CreateStartedSessionAsync();
+        using var end = await PostWithCsrfAsync(setup.Teacher, setup.Session.Id, "/end", new { });
+        Assert.Equal(HttpStatusCode.OK, end.StatusCode);
+
+        var organization = await fixture.EnsureBootstrappedAsync();
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+        AttendanceRecord? endedRecord = null;
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (endedRecord is null)
+            {
+                await using var query = store.QuerySession(organization.OrganizationId.ToString("D"));
+                endedRecord = await query.LoadAsync<AttendanceRecord>(
+                    ClassroomConstants.AttendanceRecordId(setup.Session.Id, setup.StudentId),
+                    timeout.Token);
+                if (endedRecord is not null)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+        Assert.Equal(AttendanceStatus.Absent, endedRecord!.Status);
+
+        await AttendanceParticipantJoinedHandler.Handle(
+            new LiveSessionParticipantJoined(organization.OrganizationId, setup.Session.Id,
+                setup.StudentId, DateTimeOffset.UtcNow, "late-join"), store, CancellationToken.None);
+
+        await using var finalQuery = store.QuerySession(organization.OrganizationId.ToString("D"));
+        var finalRecord = await finalQuery.LoadAsync<AttendanceRecord>(
+            ClassroomConstants.AttendanceRecordId(setup.Session.Id, setup.StudentId));
+        Assert.NotNull(finalRecord);
+        Assert.Equal(AttendanceStatus.Absent, finalRecord!.Status);
+        Assert.Empty(finalRecord.ActiveConnectionIds);
+        Assert.Null(finalRecord.CurrentJoinedAt);
+    }
+
     private async Task<SessionSetup> CreateStartedSessionAsync(bool includeSecondStudent = false)
     {
         var organization = await fixture.EnsureBootstrappedAsync();

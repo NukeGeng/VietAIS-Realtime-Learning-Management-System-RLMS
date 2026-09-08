@@ -96,7 +96,8 @@ session while allowing the live request to return immediately. Teacher adjustmen
 the actor and reason for audit. Redis presence is never used as the attendance source
 of truth. After the attendance end transaction commits, the handler enqueues a reporting
 refresh so class and affected student attendance snapshots observe the finalized
-records. Teacher attendance adjustments enqueue the same tenant-scoped reporting
+records; a join message delivered after the durable session has ended is ignored.
+Teacher attendance adjustments enqueue the same tenant-scoped reporting
 refresh boundary after the durable correction commits.
 
 Chat messages are owned by the Communication module and stored as tenant-scoped

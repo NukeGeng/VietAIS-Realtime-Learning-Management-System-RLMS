@@ -103,7 +103,8 @@ public static class AttendanceParticipantJoinedHandler
     {
         await using var session = store.LightweightSession(message.OrganizationId.ToString("D"));
         var liveSession = await session.LoadAsync<LiveSession>(message.LiveSessionId, cancellationToken);
-        if (liveSession is null || liveSession.OrganizationId != message.OrganizationId)
+        if (liveSession is null || liveSession.OrganizationId != message.OrganizationId ||
+            liveSession.Status != LiveSessionStatus.Started)
         {
             return;
         }
