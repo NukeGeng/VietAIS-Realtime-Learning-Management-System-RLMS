@@ -403,6 +403,8 @@ attendance commit, handler mới phát tín hiệu refresh cho reporting để s
 các student bị ảnh hưởng không đọc trước trạng thái điểm danh cuối phiên. Khi teacher
 điều chỉnh attendance, API lưu correction trước rồi enqueue refresh tenant-scoped cho
 class và student tương ứng; lỗi reporting không làm mất correction đã lưu.
+Thay đổi trọng số `GradeItem` cũng được lưu trước rồi enqueue refresh cho class và
+các student active để các report phản ánh cấu hình gradebook mới.
 
 ---
 

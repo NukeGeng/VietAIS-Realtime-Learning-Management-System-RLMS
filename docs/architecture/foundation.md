@@ -173,7 +173,8 @@ remain in Object Storage and are returned through authorized signed read URLs.
 Learning owns activity/lesson progress and resource metadata. Communication owns
 announcements and notifications; notification and reporting delivery are best-effort
 and do not block answer or submission writes. Reporting owns class and student
-read-model snapshots built from durable tenant-scoped documents.
+read-model snapshots built from durable tenant-scoped documents; grade-item weight
+changes enqueue a refresh for the class and its active students.
 
 ## Implementation references
 

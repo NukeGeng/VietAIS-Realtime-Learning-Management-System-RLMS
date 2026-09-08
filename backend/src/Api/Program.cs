@@ -62,6 +62,8 @@ builder.UseWolverine(options =>
         .ToLocalQueue("reporting-projection");
     options.PublishMessage<LearningPlatform.Learning.Contracts.GradeEntryVisibilityChangedForReporting>()
         .ToLocalQueue("reporting-projection");
+    options.PublishMessage<LearningPlatform.Learning.Contracts.GradeItemChangedForReporting>()
+        .ToLocalQueue("reporting-projection");
     options.PublishMessage<LearningPlatform.Learning.Contracts.LessonProgressChangedForReporting>()
         .ToLocalQueue("reporting-projection");
     options.LocalQueue("reporting-projection").Sequential();

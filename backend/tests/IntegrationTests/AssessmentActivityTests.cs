@@ -243,6 +243,15 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         Assert.Equal(1, classReport!.PublishedGradeCount);
         Assert.Equal(1, classReport.SubmissionCount);
 
+        using var studentReportBeforeWeight = await setup.Student.GetAsync(
+            $"/api/reporting/classes/{setup.ClassId:D}/students/me");
+        Assert.Equal(HttpStatusCode.OK, studentReportBeforeWeight.StatusCode);
+        var beforeWeight = await studentReportBeforeWeight.Content
+            .ReadFromJsonAsync<StudentReportResponse>();
+        Assert.NotNull(beforeWeight);
+        var classVersionBeforeWeight = classReport.Version;
+        var studentVersionBeforeWeight = beforeWeight!.Version;
+
         using var activityReport = await setup.Teacher.GetAsync(
             $"/api/reporting/activities/{setup.Activity.Id:D}/summary");
         Assert.Equal(HttpStatusCode.OK, activityReport.StatusCode);
@@ -334,6 +343,38 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         Assert.Equal(HttpStatusCode.OK, weightUpdate.StatusCode);
         var updatedItem = await weightUpdate.Content.ReadFromJsonAsync<GradebookItemResponse>();
         Assert.Equal(60m, updatedItem!.Weight);
+
+        ClassReportResponse? weightedClassReport = null;
+        StudentReportResponse? weightedStudentReport = null;
+        using (var weightReportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (weightedClassReport is null || weightedClassReport.Version <= classVersionBeforeWeight ||
+                   weightedStudentReport is null || weightedStudentReport.Version <= studentVersionBeforeWeight)
+            {
+                using var classResponse = await setup.Teacher.GetAsync(
+                    $"/api/reporting/classes/{setup.ClassId:D}/summary", weightReportTimeout.Token);
+                classResponse.EnsureSuccessStatusCode();
+                weightedClassReport = await classResponse.Content.ReadFromJsonAsync<ClassReportResponse>(
+                    weightReportTimeout.Token);
+                using var studentResponse = await setup.Student.GetAsync(
+                    $"/api/reporting/classes/{setup.ClassId:D}/students/me", weightReportTimeout.Token);
+                studentResponse.EnsureSuccessStatusCode();
+                weightedStudentReport = await studentResponse.Content.ReadFromJsonAsync<StudentReportResponse>(
+                    weightReportTimeout.Token);
+                if (weightedClassReport?.Version > classVersionBeforeWeight &&
+                    weightedStudentReport?.Version > studentVersionBeforeWeight)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, weightReportTimeout.Token);
+            }
+        }
+        Assert.NotNull(weightedClassReport);
+        Assert.True(weightedClassReport!.Version > classVersionBeforeWeight);
+        Assert.NotNull(weightedStudentReport);
+        Assert.True(weightedStudentReport!.Version > studentVersionBeforeWeight);
+
         using var adjustment = await PostWithCsrfAsync(setup.Teacher,
             $"/api/assessment/grade-entries/{automaticGrade.Id:D}/adjust", new
             {

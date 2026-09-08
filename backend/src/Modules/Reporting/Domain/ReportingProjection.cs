@@ -29,6 +29,24 @@ public static class ReportingProjectionHandler
             message.StudentId, cancellationToken);
     }
 
+    public static async Task Handle(GradeItemChangedForReporting message, IDocumentStore store,
+        CancellationToken cancellationToken)
+    {
+        await RebuildClassAsync(store, message.OrganizationId, message.LearningClassId,
+            cancellationToken);
+        await using var query = store.QuerySession(message.OrganizationId.ToString("D"));
+        var studentIds = await query.Query<Enrollment>()
+            .Where(value => value.LearningClassId == message.LearningClassId &&
+                value.Status == EnrollmentStatus.Active)
+            .Select(value => value.StudentId)
+            .ToListAsync(cancellationToken);
+        foreach (var studentId in studentIds.Distinct())
+        {
+            await RebuildStudentAsync(store, message.OrganizationId, message.LearningClassId,
+                studentId, cancellationToken);
+        }
+    }
+
     public static async Task Handle(LessonProgressChangedForReporting message, IDocumentStore store,
         CancellationToken cancellationToken)
     {

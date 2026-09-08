@@ -31,6 +31,13 @@ public sealed record GradeEntryVisibilityChangedForReporting(Guid OrganizationId
     Guid LearningClassId, Guid StudentId);
 
 /// <summary>
+/// Refreshes class and enrolled-student reporting snapshots after a grade-item
+/// configuration changes, such as its weight.
+/// </summary>
+public sealed record GradeItemChangedForReporting(Guid OrganizationId, Guid LearningClassId,
+    Guid GradeItemId);
+
+/// <summary>
 /// Refreshes the reporting read models after a durable lesson progress change.
 /// The write endpoint remains independent from reporting availability.
 /// </summary>

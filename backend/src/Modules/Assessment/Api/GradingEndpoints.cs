@@ -349,7 +349,8 @@ public static class GradingEndpoints
 
     private static async Task<IResult> UpdateGradeItemAsync(Guid gradeItemId,
         UpdateGradeItemRequest request, HttpContext context, IDocumentSession session,
-        IAcademicDirectory academics, CancellationToken cancellationToken)
+        IAcademicDirectory academics, IMessageBus messageBus, ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
         {
@@ -374,10 +375,27 @@ public static class GradingEndpoints
 
         try
         {
+            var previousWeight = item.Weight;
             item.Weight = GradingRules.RequireWeight(request.Weight);
             item.UpdatedAt = DateTimeOffset.UtcNow;
             session.Store(item);
             await session.SaveChangesAsync(cancellationToken);
+            if (item.Weight != previousWeight)
+            {
+                try
+                {
+                    await messageBus.PublishAsync(new GradeItemChangedForReporting(
+                        actor!.OrganizationId, item.LearningClassId, item.Id));
+                }
+                catch (Exception exception)
+                {
+                    // Reporting is asynchronous and must not make a durable
+                    // grade-item configuration change fail.
+                    loggerFactory.CreateLogger("LearningPlatform.Assessment.Grading").LogWarning(exception,
+                        "Unable to enqueue grade-item reporting refresh for {GradeItemId}.",
+                        item.Id);
+                }
+            }
             return Results.Ok(GradebookItemResponse.From(item));
         }
         catch (AssessmentValidationException exception)
