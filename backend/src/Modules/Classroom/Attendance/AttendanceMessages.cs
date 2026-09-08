@@ -69,8 +69,6 @@ public static class AttendanceMessagePublisher
     {
         await PublishAsync(messageBus, logger,
             new LiveSessionEnded(organizationId, liveSessionId, endedAt));
-        await PublishAsync(messageBus, logger,
-            new LiveSessionEndedForReporting(organizationId, liveSessionId, endedAt));
     }
 
     private static async Task PublishAsync<T>(IMessageBus messageBus, ILogger logger, T message)
@@ -243,6 +241,7 @@ public static class AttendanceSessionEndedHandler
     public static async Task Handle(
         LiveSessionEnded message,
         IDocumentStore store,
+        IMessageBus messageBus,
         CancellationToken cancellationToken)
     {
         await using var session = store.LightweightSession(message.OrganizationId.ToString("D"));
@@ -298,6 +297,13 @@ public static class AttendanceSessionEndedHandler
         }
 
         await session.SaveChangesAsync(cancellationToken);
+
+        // Reporting must observe the finalized attendance documents. Publish
+        // its refresh only after this transaction commits; the two queues are
+        // independent and publishing both messages at the HTTP boundary could
+        // otherwise let reporting race ahead of attendance finalization.
+        await messageBus.PublishAsync(new LiveSessionEndedForReporting(
+            message.OrganizationId, message.LiveSessionId, message.EndedAt));
     }
 
 }

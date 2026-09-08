@@ -398,7 +398,9 @@ attendance handler cập nhật `AttendanceRecord` bất đồng bộ. Một stu
 mở để một disconnect không đóng segment còn được sử dụng. Khi kết thúc phiên,
 handler đóng segment còn mở và tạo bản ghi vắng cho student chưa từng join. Chat
 ghi durable message trước khi broadcast; SignalR delivery có thể thất bại mà không
-làm mất lịch sử chat hoặc ảnh hưởng media/answer/submit.
+làm mất lịch sử chat hoặc ảnh hưởng media/answer/submit. Sau khi transaction kết thúc
+attendance commit, handler mới phát tín hiệu refresh cho reporting để snapshot không
+đọc trước trạng thái điểm danh cuối phiên.
 
 ---
 

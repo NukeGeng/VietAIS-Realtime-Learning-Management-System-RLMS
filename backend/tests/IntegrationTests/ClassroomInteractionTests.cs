@@ -2,9 +2,14 @@ using System.Net;
 using System.Net.Http.Json;
 using LearningPlatform.Academics.Api;
 using LearningPlatform.Classroom.Api;
+using LearningPlatform.Classroom.Attendance;
 using LearningPlatform.Classroom.Domain;
 using LearningPlatform.Communication.Api;
 using LearningPlatform.Communication.Domain;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
+using LearningPlatform.Reporting.Domain;
+using Wolverine;
 
 namespace LearningPlatform.IntegrationTests;
 
@@ -132,6 +137,76 @@ public sealed class ClassroomInteractionTests(FoundationFixture fixture) : IClas
             Assert.Single(adjustedSummary!.Records, record => record.StudentId == setup.SecondStudentId).Status);
     }
 
+    [Fact]
+    public async Task Attendance_completion_publishes_reporting_refresh_after_records_are_finalized()
+    {
+        var setup = await CreateStartedSessionAsync(includeSecondStudent: true);
+        var organization = await fixture.EnsureBootstrappedAsync();
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+
+        using var join = await PostWithCsrfAsync(setup.Student, setup.Session.Id, "/join", new { });
+        Assert.Equal(HttpStatusCode.OK, join.StatusCode);
+
+        using (var attendanceTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (true)
+            {
+                await using var query = store.QuerySession(organization.OrganizationId.ToString("D"));
+                if (await query.LoadAsync<AttendanceRecord>(
+                        ClassroomConstants.AttendanceRecordId(setup.Session.Id, setup.StudentId),
+                        attendanceTimeout.Token) is not null)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, attendanceTimeout.Token);
+            }
+        }
+
+        var endedAt = DateTimeOffset.UtcNow;
+        await using (var session = store.LightweightSession(organization.OrganizationId.ToString("D")))
+        {
+            var liveSession = await session.LoadAsync<LiveSession>(setup.Session.Id);
+            Assert.NotNull(liveSession);
+            liveSession!.Status = LiveSessionStatus.Ended;
+            liveSession.EndedAt = endedAt;
+            liveSession.UpdatedAt = endedAt;
+            session.Update(liveSession);
+            await session.SaveChangesAsync();
+        }
+
+        await using var busScope = fixture.Services.CreateAsyncScope();
+        await AttendanceSessionEndedHandler.Handle(
+            new LiveSessionEnded(organization.OrganizationId, setup.Session.Id, endedAt),
+            store,
+            busScope.ServiceProvider.GetRequiredService<IMessageBus>(),
+            CancellationToken.None);
+
+        ClassReportSnapshot? report = null;
+        using (var reportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (report is null || report.AttendanceSessionCount != 1 ||
+                   report.AttendancePresentCount != 1 || report.AttendanceAbsentCount != 1)
+            {
+                await using var query = store.QuerySession(organization.OrganizationId.ToString("D"));
+                report = await query.LoadAsync<ClassReportSnapshot>(
+                    ReportingConstants.ClassSnapshotId(setup.ClassId), reportTimeout.Token);
+                if (report is not null && report.AttendanceSessionCount == 1 &&
+                    report.AttendancePresentCount == 1 && report.AttendanceAbsentCount == 1)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, reportTimeout.Token);
+            }
+        }
+
+        Assert.NotNull(report);
+        Assert.Equal(1, report!.AttendanceSessionCount);
+        Assert.Equal(1, report.AttendancePresentCount);
+        Assert.Equal(1, report.AttendanceAbsentCount);
+    }
+
     private async Task<SessionSetup> CreateStartedSessionAsync(bool includeSecondStudent = false)
     {
         var organization = await fixture.EnsureBootstrappedAsync();
@@ -186,8 +261,8 @@ public sealed class ClassroomInteractionTests(FoundationFixture fixture) : IClas
         var studentClient = fixture.Client();
         FoundationFixture.SetCookies(studentClient,
             await fixture.LoginCookieAsync(studentEmail, studentPassword));
-        return new SessionSetup(teacher, studentClient, session, organization.AdministratorId,
-            student.UserId, secondStudentId);
+        return new SessionSetup(teacher, studentClient, session, learningClass.Id,
+            organization.AdministratorId, student.UserId, secondStudentId);
     }
 
     private async Task<CourseResponse> CreatePublishedCourseAsync(HttpClient client)
@@ -246,6 +321,7 @@ public sealed class ClassroomInteractionTests(FoundationFixture fixture) : IClas
         HttpClient Teacher,
         HttpClient Student,
         LiveSessionResponse Session,
+        Guid ClassId,
         Guid TeacherId,
         Guid StudentId,
         Guid SecondStudentId);

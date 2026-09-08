@@ -91,7 +91,8 @@ while another connection for the same student remains. The three attendance mess
 types share a durable sequential local queue, preserving join/leave/end order for a
 session while allowing the live request to return immediately. Teacher adjustments keep
 the actor and reason for audit. Redis presence is never used as the attendance source
-of truth.
+of truth. After the attendance end transaction commits, the handler enqueues a reporting
+refresh so class attendance snapshots observe the finalized records.
 
 Chat messages are owned by the Communication module and stored as tenant-scoped
 documents. The API persists a message before broadcasting it to the session group;
