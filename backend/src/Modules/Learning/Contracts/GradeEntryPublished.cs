@@ -43,3 +43,10 @@ public sealed record GradeItemChangedForReporting(Guid OrganizationId, Guid Lear
 /// </summary>
 public sealed record LessonProgressChangedForReporting(Guid OrganizationId, Guid LearningClassId,
     Guid StudentId);
+
+/// <summary>
+/// Refreshes the student's reporting snapshot after the durable activity
+/// progress projection catches up with a published grade.
+/// </summary>
+public sealed record StudentProgressChangedForReporting(Guid OrganizationId, Guid LearningClassId,
+    Guid StudentId);

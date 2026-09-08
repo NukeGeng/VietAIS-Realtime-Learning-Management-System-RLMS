@@ -1,4 +1,5 @@
 using JasperFx;
+using LearningPlatform.Academics.Contracts;
 using LearningPlatform.Academics.Domain;
 using LearningPlatform.Identity.Authorization;
 using LearningPlatform.Identity.Domain;
@@ -331,6 +332,8 @@ public static class ClassEndpoints
         HttpContext context,
         IDocumentSession session,
         IIdentityDirectory identity,
+        IMessageBus messageBus,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -397,6 +400,7 @@ public static class ClassEndpoints
         }
 
         await session.SaveChangesAsync(cancellationToken);
+        await PublishEnrollmentReportingRefreshAsync(messageBus, loggerFactory, enrollment);
         return Results.Created($"/api/academics/classes/{classId:D}/enrollments/{request.StudentId:D}",
             EnrollmentResponse.From(enrollment));
     }
@@ -406,8 +410,15 @@ public static class ClassEndpoints
         Guid studentId,
         HttpContext context,
         IDocumentSession session,
+        IMessageBus messageBus,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        if (!AuthenticatedActor.TryCreate(context.User, out _))
+        {
+            return Results.Forbid();
+        }
+
         var learningClass = await session.LoadAsync<LearningClass>(classId, cancellationToken);
         if (learningClass is null)
         {
@@ -435,7 +446,26 @@ public static class ClassEndpoints
         enrollment.UpdatedAt = DateTimeOffset.UtcNow;
         session.Update(enrollment);
         await session.SaveChangesAsync(cancellationToken);
+        await PublishEnrollmentReportingRefreshAsync(messageBus, loggerFactory, enrollment);
         return Results.NoContent();
+    }
+
+    private static async Task PublishEnrollmentReportingRefreshAsync(IMessageBus messageBus,
+        ILoggerFactory loggerFactory, Enrollment enrollment)
+    {
+        try
+        {
+            await messageBus.PublishAsync(new EnrollmentChangedForReporting(enrollment.OrganizationId,
+                enrollment.LearningClassId, enrollment.StudentId, enrollment.Status));
+        }
+        catch (Exception exception)
+        {
+            // Enrollment is durable even if the asynchronous reporting queue is
+            // temporarily unavailable.
+            loggerFactory.CreateLogger("LearningPlatform.Academics.Enrollment").LogWarning(exception,
+                "Unable to enqueue enrollment reporting refresh for {ClassId}/{StudentId}.",
+                enrollment.LearningClassId, enrollment.StudentId);
+        }
     }
 
     private static async Task<IResult> ListSchedulesAsync(

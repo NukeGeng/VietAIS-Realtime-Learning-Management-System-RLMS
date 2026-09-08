@@ -148,6 +148,13 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         var detail = await detailResponse.Content.ReadFromJsonAsync<StudentAttemptDetailResponse>();
         Assert.Equal("B", detail!.Answers[questionId]);
 
+        using var reportBeforeSubmissionResponse = await setup.Teacher.GetAsync(
+            $"/api/reporting/classes/{setup.ClassId:D}/summary");
+        reportBeforeSubmissionResponse.EnsureSuccessStatusCode();
+        var reportBeforeSubmission = (await reportBeforeSubmissionResponse.Content
+            .ReadFromJsonAsync<ClassReportResponse>())!;
+        Assert.Equal(0, reportBeforeSubmission.SubmissionCount);
+
         using var submit = await PostWithCsrfAsync(setup.Student,
             $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/submit", new { });
         Assert.Equal(HttpStatusCode.Created, submit.StatusCode);
@@ -155,6 +162,30 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         Assert.NotNull(submission);
         Assert.Equal(setup.Activity.Id, submission!.ActivityId);
         Assert.Contains(submission.Answers, answer => answer.QuestionId == questionId && answer.Value == "B");
+
+        ClassReportResponse? reportAfterSubmission = null;
+        using (var reportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (reportAfterSubmission is null || reportAfterSubmission.SubmissionCount != 1 ||
+                   reportAfterSubmission.Version <= reportBeforeSubmission.Version)
+            {
+                using var reportResponse = await setup.Teacher.GetAsync(
+                    $"/api/reporting/classes/{setup.ClassId:D}/summary", reportTimeout.Token);
+                reportResponse.EnsureSuccessStatusCode();
+                reportAfterSubmission = await reportResponse.Content.ReadFromJsonAsync<ClassReportResponse>(
+                    reportTimeout.Token);
+                if (reportAfterSubmission?.SubmissionCount == 1 &&
+                    reportAfterSubmission.Version > reportBeforeSubmission.Version)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, reportTimeout.Token);
+            }
+        }
+        Assert.NotNull(reportAfterSubmission);
+        Assert.Equal(1, reportAfterSubmission!.SubmissionCount);
+        Assert.True(reportAfterSubmission.Version > reportBeforeSubmission.Version);
 
         using var gradeBeforePublish = await setup.Teacher.GetAsync(
             $"/api/assessment/submissions/{submission.Id:D}/grade");
@@ -458,6 +489,13 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         var setup = await CreateActivitySetupAsync();
         var questionId = setup.Activity.Questions[0].Id;
 
+        using var initialReportResponse = await setup.Teacher.GetAsync(
+            $"/api/reporting/classes/{setup.ClassId:D}/summary");
+        initialReportResponse.EnsureSuccessStatusCode();
+        var initialReport = (await initialReportResponse.Content
+            .ReadFromJsonAsync<ClassReportResponse>())!;
+        Assert.Equal(1, initialReport.PublishedActivityCount);
+
         using var denied = await PostWithCsrfAsync(setup.Student,
             $"/api/assessment/classes/{setup.ClassId:D}/activities", new
             {
@@ -478,6 +516,31 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
             $"/api/assessment/activities/{setup.Activity.Id:D}/pause", new { });
         Assert.Equal(HttpStatusCode.OK, pause.StatusCode);
 
+        ClassReportResponse? pausedReport = null;
+        using (var reportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (pausedReport is null || pausedReport.PublishedActivityCount != 0 ||
+                   pausedReport.Version <= initialReport.Version)
+            {
+                using var reportResponse = await setup.Teacher.GetAsync(
+                    $"/api/reporting/classes/{setup.ClassId:D}/summary", reportTimeout.Token);
+                reportResponse.EnsureSuccessStatusCode();
+                pausedReport = await reportResponse.Content.ReadFromJsonAsync<ClassReportResponse>(
+                    reportTimeout.Token);
+                if (pausedReport?.PublishedActivityCount == 0 &&
+                    pausedReport.Version > initialReport.Version)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, reportTimeout.Token);
+            }
+        }
+        Assert.NotNull(pausedReport);
+        Assert.Equal(0, pausedReport!.PublishedActivityCount);
+        Assert.True(pausedReport.Version > initialReport.Version);
+        var pausedReportVersion = pausedReport.Version;
+
         using var blocked = await PutWithCsrfAsync(setup.Student,
             $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/answers/{questionId:D}",
             new SaveAnswerRequest("B"));
@@ -486,6 +549,30 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         using var resume = await PostWithCsrfAsync(setup.Teacher,
             $"/api/assessment/activities/{setup.Activity.Id:D}/resume", new { });
         Assert.Equal(HttpStatusCode.OK, resume.StatusCode);
+
+        ClassReportResponse? resumedReport = null;
+        using (var reportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (resumedReport is null || resumedReport.PublishedActivityCount != 1 ||
+                   resumedReport.Version <= pausedReportVersion)
+            {
+                using var reportResponse = await setup.Teacher.GetAsync(
+                    $"/api/reporting/classes/{setup.ClassId:D}/summary", reportTimeout.Token);
+                reportResponse.EnsureSuccessStatusCode();
+                resumedReport = await reportResponse.Content.ReadFromJsonAsync<ClassReportResponse>(
+                    reportTimeout.Token);
+                if (resumedReport?.PublishedActivityCount == 1 &&
+                    resumedReport.Version > pausedReportVersion)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, reportTimeout.Token);
+            }
+        }
+        Assert.NotNull(resumedReport);
+        Assert.Equal(1, resumedReport!.PublishedActivityCount);
+        Assert.True(resumedReport.Version > pausedReportVersion);
     }
 
     [Fact]
@@ -1026,9 +1113,42 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         Assert.Equal(HttpStatusCode.Created, createAssignment.StatusCode);
         var assignment = (await createAssignment.Content.ReadFromJsonAsync<EssayAssignmentResponse>())!;
 
+        using var initialClassReportResponse = await setup.Teacher.GetAsync(
+            $"/api/reporting/classes/{setup.ClassId:D}/summary");
+        initialClassReportResponse.EnsureSuccessStatusCode();
+        var initialClassReport = (await initialClassReportResponse.Content
+            .ReadFromJsonAsync<ClassReportResponse>())!;
+        Assert.Equal(1, initialClassReport.ActivityCount);
+
         using var publishAssignment = await PostWithCsrfAsync(setup.Teacher,
             $"/api/assessment/essay-assignments/{assignment.Id:D}/publish", new { });
         publishAssignment.EnsureSuccessStatusCode();
+
+        ClassReportResponse? publishedClassReport = null;
+        using (var reportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (publishedClassReport is null || publishedClassReport.ActivityCount != 2 ||
+                   publishedClassReport.Version <= initialClassReport.Version)
+            {
+                using var reportResponse = await setup.Teacher.GetAsync(
+                    $"/api/reporting/classes/{setup.ClassId:D}/summary", reportTimeout.Token);
+                reportResponse.EnsureSuccessStatusCode();
+                publishedClassReport = await reportResponse.Content.ReadFromJsonAsync<ClassReportResponse>(
+                    reportTimeout.Token);
+                if (publishedClassReport?.ActivityCount == 2 &&
+                    publishedClassReport.Version > initialClassReport.Version)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, reportTimeout.Token);
+            }
+        }
+        Assert.NotNull(publishedClassReport);
+        Assert.Equal(2, publishedClassReport!.ActivityCount);
+        Assert.Equal(2, publishedClassReport.PublishedActivityCount);
+        Assert.True(publishedClassReport.Version > initialClassReport.Version);
+        var publishedClassVersion = publishedClassReport.Version;
 
         using var createGroup = await PostWithCsrfAsync(setup.Student,
             $"/api/assessment/essay-assignments/{assignment.Id:D}/groups", new { Name = "Realtime team" });
@@ -1106,6 +1226,30 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         Assert.Equal(2, firstSubmission.Version);
         Assert.NotEqual(Guid.Empty, firstSubmission.FileAssetId);
 
+        ClassReportResponse? essaySubmissionReport = null;
+        using (var reportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (essaySubmissionReport is null || essaySubmissionReport.SubmissionCount != 1 ||
+                   essaySubmissionReport.Version <= publishedClassVersion)
+            {
+                using var reportResponse = await setup.Teacher.GetAsync(
+                    $"/api/reporting/classes/{setup.ClassId:D}/summary", reportTimeout.Token);
+                reportResponse.EnsureSuccessStatusCode();
+                essaySubmissionReport = await reportResponse.Content.ReadFromJsonAsync<ClassReportResponse>(
+                    reportTimeout.Token);
+                if (essaySubmissionReport?.SubmissionCount == 1 &&
+                    essaySubmissionReport.Version > publishedClassVersion)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, reportTimeout.Token);
+            }
+        }
+        Assert.NotNull(essaySubmissionReport);
+        Assert.Equal(1, essaySubmissionReport!.SubmissionCount);
+        Assert.True(essaySubmissionReport.Version > publishedClassVersion);
+
         using var reportFile = await setup.Teacher.GetAsync(
             $"/api/assessment/essay-submissions/{firstSubmission.Id:D}/file");
         Assert.Equal(HttpStatusCode.OK, reportFile.StatusCode);
@@ -1164,14 +1308,16 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
         StudentReportResponse? studentReport = null;
         using (var reportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
         {
-            while (studentReport is null || studentReport.PublishedGradeCount != 1)
+            while (studentReport is null || studentReport.PublishedGradeCount != 1 ||
+                   studentReport.CompletedActivityCount != 1)
             {
                 using var reportResponse = await setup.Student.GetAsync(
                     $"/api/reporting/classes/{setup.ClassId:D}/students/me", reportTimeout.Token);
                 reportResponse.EnsureSuccessStatusCode();
                 studentReport = await reportResponse.Content.ReadFromJsonAsync<StudentReportResponse>(
                     reportTimeout.Token);
-                if (studentReport?.PublishedGradeCount == 1)
+                if (studentReport?.PublishedGradeCount == 1 &&
+                    studentReport.CompletedActivityCount == 1)
                 {
                     break;
                 }

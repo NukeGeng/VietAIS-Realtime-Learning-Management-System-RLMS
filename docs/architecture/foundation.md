@@ -173,8 +173,13 @@ remain in Object Storage and are returned through authorized signed read URLs.
 Learning owns activity/lesson progress and resource metadata. Communication owns
 announcements and notifications; notification and reporting delivery are best-effort
 and do not block answer or submission writes. Reporting owns class and student
-read-model snapshots built from durable tenant-scoped documents; grade-item weight
-changes enqueue a refresh for the class and its active students.
+read-model snapshots built from durable tenant-scoped documents. Enrollment changes,
+assessment/essay lifecycle changes, and accepted submissions enqueue reporting
+refreshes after their durable writes; active enrollment refreshes the student's
+snapshot while a drop refreshes the class count. Grade-item weight changes enqueue a
+refresh for the class and its active students. The Learning progress handler emits a
+follow-up reporting refresh after its own grade projection commits, preventing the
+independent queues from leaving a report permanently ahead of progress state.
 
 ## Implementation references
 

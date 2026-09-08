@@ -1,13 +1,15 @@
 using LearningPlatform.Learning.Contracts;
 using LearningPlatform.Learning.Domain;
 using Marten;
+using Microsoft.Extensions.Logging;
+using Wolverine;
 
 namespace LearningPlatform.Learning.Handlers;
 
 public static class GradeEntryPublishedHandler
 {
     public static async Task Handle(GradeEntryPublished message, IDocumentStore store,
-        CancellationToken cancellationToken)
+        IMessageBus messageBus, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
     {
         await using var session = store.LightweightSession(message.OrganizationId.ToString("D"));
         await ApplyPublishedAsync(session, message.OrganizationId, message.LearningClassId,
@@ -16,10 +18,13 @@ public static class GradeEntryPublishedHandler
             message.MaxScore, message.GradeVersion, message.PublishedAt,
             message.ResultsReleaseAt, cancellationToken);
         await session.SaveChangesAsync(cancellationToken);
+        await PublishReportingRefreshAsync(messageBus, loggerFactory,
+            new StudentProgressChangedForReporting(message.OrganizationId, message.LearningClassId,
+                message.StudentId));
     }
 
     public static async Task Handle(GradeEntryVisibilityChanged message, IDocumentStore store,
-        CancellationToken cancellationToken)
+        IMessageBus messageBus, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
     {
         await using var session = store.LightweightSession(message.OrganizationId.ToString("D"));
         var progressId = LearningConstants.ProgressId(message.ActivityId, message.StudentId);
@@ -31,6 +36,9 @@ public static class GradeEntryPublishedHandler
                 await session.SaveChangesAsync(cancellationToken);
             }
 
+            await PublishReportingRefreshAsync(messageBus, loggerFactory,
+                new StudentProgressChangedForReporting(message.OrganizationId, message.LearningClassId,
+                    message.StudentId));
             return;
         }
 
@@ -40,6 +48,26 @@ public static class GradeEntryPublishedHandler
             message.MaxScore, message.GradeVersion, message.ChangedAt,
             message.ResultsReleaseAt, cancellationToken);
         await session.SaveChangesAsync(cancellationToken);
+        await PublishReportingRefreshAsync(messageBus, loggerFactory,
+            new StudentProgressChangedForReporting(message.OrganizationId, message.LearningClassId,
+                message.StudentId));
+    }
+
+    private static async Task PublishReportingRefreshAsync(IMessageBus messageBus,
+        ILoggerFactory loggerFactory, StudentProgressChangedForReporting message)
+    {
+        try
+        {
+            await messageBus.PublishAsync(message);
+        }
+        catch (Exception exception)
+        {
+            // Learning progress remains durable even if the asynchronous
+            // reporting queue is temporarily unavailable.
+            loggerFactory.CreateLogger("LearningPlatform.Learning.Progress").LogWarning(exception,
+                "Unable to enqueue reporting refresh for {ClassId}/{StudentId}.",
+                message.LearningClassId, message.StudentId);
+        }
     }
 
     private static async Task ApplyPublishedAsync(IDocumentSession session, Guid organizationId,

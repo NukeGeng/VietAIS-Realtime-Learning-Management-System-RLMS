@@ -1,5 +1,6 @@
 using LearningPlatform.Academics.Authorization;
 using LearningPlatform.Academics.Domain;
+using LearningPlatform.Assessment.Contracts;
 using LearningPlatform.Assessment.Domain;
 using LearningPlatform.Assessment.Realtime;
 using LearningPlatform.Classroom.Domain;
@@ -730,8 +731,26 @@ public static class AssessmentEndpoints
             cancellationToken);
         session.Update(activity);
         await session.SaveChangesAsync(cancellationToken);
+        await PublishActivityReportingRefreshAsync(messageBus, loggerFactory, activity);
         await PublishActivityNotificationAsync(messageBus, loggerFactory, activity);
         return Results.Ok(AssessmentActivityResponse.From(activity));
+    }
+
+    private static async Task PublishActivityReportingRefreshAsync(IMessageBus messageBus,
+        ILoggerFactory loggerFactory, AssessmentActivity activity)
+    {
+        try
+        {
+            await messageBus.PublishAsync(new AssessmentActivityChangedForReporting(
+                activity.OrganizationId, activity.LearningClassId, activity.Id));
+        }
+        catch (Exception exception)
+        {
+            // The activity lifecycle change is durable even if the asynchronous
+            // reporting queue is temporarily unavailable.
+            loggerFactory.CreateLogger("LearningPlatform.Assessment.Activity").LogWarning(exception,
+                "Unable to enqueue activity reporting refresh for {ActivityId}.", activity.Id);
+        }
     }
 
     private static async Task PublishActivityNotificationAsync(IMessageBus messageBus,
@@ -769,21 +788,21 @@ public static class AssessmentEndpoints
 
     private static Task<IResult> PauseActivityAsync(
         Guid activityId, HttpContext context, IDocumentSession session, IAcademicDirectory academics,
-        CancellationToken cancellationToken) =>
+        IMessageBus messageBus, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         ChangeActivityStatusAsync(activityId, AssessmentActivityStatus.Paused, context, session, academics,
-            cancellationToken);
+            messageBus, loggerFactory, cancellationToken);
 
     private static Task<IResult> ResumeActivityAsync(
         Guid activityId, HttpContext context, IDocumentSession session, IAcademicDirectory academics,
-        CancellationToken cancellationToken) =>
+        IMessageBus messageBus, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         ChangeActivityStatusAsync(activityId, AssessmentActivityStatus.Published, context, session, academics,
-            cancellationToken);
+            messageBus, loggerFactory, cancellationToken);
 
     private static Task<IResult> CloseActivityAsync(
         Guid activityId, HttpContext context, IDocumentSession session, IAcademicDirectory academics,
-        CancellationToken cancellationToken) =>
+        IMessageBus messageBus, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         ChangeActivityStatusAsync(activityId, AssessmentActivityStatus.Closed, context, session, academics,
-            cancellationToken);
+            messageBus, loggerFactory, cancellationToken);
 
     private static async Task<IResult> ChangeActivityStatusAsync(
         Guid activityId,
@@ -791,6 +810,8 @@ public static class AssessmentEndpoints
         HttpContext context,
         IDocumentSession session,
         IAcademicDirectory academics,
+        IMessageBus messageBus,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -837,6 +858,7 @@ public static class AssessmentEndpoints
         activity.UpdatedAt = DateTimeOffset.UtcNow;
         session.Update(activity);
         await session.SaveChangesAsync(cancellationToken);
+        await PublishActivityReportingRefreshAsync(messageBus, loggerFactory, activity);
         return Results.Ok(AssessmentActivityResponse.From(activity));
     }
 
@@ -1193,12 +1215,32 @@ public static class AssessmentEndpoints
             automaticGrade, now);
         session.Insert(gradeEntry);
         await session.SaveChangesAsync(cancellationToken);
+        await PublishSubmissionReportingRefreshAsync(messageBus, loggerFactory,
+            actor.OrganizationId, activity.LearningClassId, actor.UserId);
         await StudentActivityChangePublisher.PublishAsync(messageBus, logger,
             new StudentActivityChanged(actor.OrganizationId, attemptId, activity.Id, actor.UserId,
                 activity.LearningClassId, ActivityChangeTypes.Submitted, null, null,
                 StudentActivityRealtimeState.From(nextState), now));
         return Results.Created($"/api/assessment/activities/{activityId:D}/submissions/{submission.Id:D}",
             SubmissionResponse.From(submission));
+    }
+
+    private static async Task PublishSubmissionReportingRefreshAsync(IMessageBus messageBus,
+        ILoggerFactory loggerFactory, Guid organizationId, Guid classId, Guid studentId)
+    {
+        try
+        {
+            await messageBus.PublishAsync(new SubmissionChangedForReporting(organizationId, classId,
+                studentId));
+        }
+        catch (Exception exception)
+        {
+            // Submission and grade drafts are durable even if the asynchronous
+            // reporting queue is temporarily unavailable.
+            loggerFactory.CreateLogger("LearningPlatform.Assessment.Submission").LogWarning(exception,
+                "Unable to enqueue submission reporting refresh for {ClassId}/{StudentId}.",
+                classId, studentId);
+        }
     }
 
     private static Task<IResult> MarkAttemptIdleAsync(Guid activityId, HttpContext context,

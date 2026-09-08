@@ -1,5 +1,6 @@
 using LearningPlatform.Academics.Authorization;
 using LearningPlatform.Academics.Domain;
+using LearningPlatform.Assessment.Contracts;
 using LearningPlatform.Assessment.Domain;
 using LearningPlatform.Assessment.Storage;
 using LearningPlatform.Identity.Authorization;
@@ -211,18 +212,21 @@ public static class EssayEndpoints
     }
 
     private static Task<IResult> PublishAssignmentAsync(Guid assignmentId, HttpContext context,
-        IDocumentSession session, IAcademicDirectory academics, CancellationToken cancellationToken) =>
+        IDocumentSession session, IAcademicDirectory academics, IMessageBus messageBus,
+        ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         ChangeAssignmentStatusAsync(assignmentId, EssayAssignmentStatus.Published, context, session,
-            academics, cancellationToken);
+            academics, messageBus, loggerFactory, cancellationToken);
 
     private static Task<IResult> CloseAssignmentAsync(Guid assignmentId, HttpContext context,
-        IDocumentSession session, IAcademicDirectory academics, CancellationToken cancellationToken) =>
+        IDocumentSession session, IAcademicDirectory academics, IMessageBus messageBus,
+        ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         ChangeAssignmentStatusAsync(assignmentId, EssayAssignmentStatus.Closed, context, session,
-            academics, cancellationToken);
+            academics, messageBus, loggerFactory, cancellationToken);
 
     private static async Task<IResult> ChangeAssignmentStatusAsync(Guid assignmentId,
         EssayAssignmentStatus target, HttpContext context, IDocumentSession session,
-        IAcademicDirectory academics, CancellationToken cancellationToken)
+        IAcademicDirectory academics, IMessageBus messageBus, ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
         {
@@ -255,7 +259,25 @@ public static class EssayEndpoints
         assignment.UpdatedAt = DateTimeOffset.UtcNow;
         session.Store(assignment);
         await session.SaveChangesAsync(cancellationToken);
+        await PublishEssayReportingRefreshAsync(messageBus, loggerFactory, assignment);
         return Results.Ok(EssayAssignmentResponse.From(assignment));
+    }
+
+    private static async Task PublishEssayReportingRefreshAsync(IMessageBus messageBus,
+        ILoggerFactory loggerFactory, EssayAssignment assignment)
+    {
+        try
+        {
+            await messageBus.PublishAsync(new EssayAssignmentChangedForReporting(
+                assignment.OrganizationId, assignment.LearningClassId, assignment.Id));
+        }
+        catch (Exception exception)
+        {
+            // The assignment lifecycle change is durable even if the asynchronous
+            // reporting queue is temporarily unavailable.
+            loggerFactory.CreateLogger("LearningPlatform.Assessment.Essay").LogWarning(exception,
+                "Unable to enqueue essay reporting refresh for {AssignmentId}.", assignment.Id);
+        }
     }
 
     private static async Task<IResult> CreateGroupAsync(Guid assignmentId,
@@ -746,7 +768,8 @@ public static class EssayEndpoints
 
     private static async Task<IResult> UploadSubmissionAsync(Guid assignmentId, Guid groupId,
         HttpRequest request, HttpContext context, IDocumentSession session, IAcademicDirectory academics,
-        IFileStorage storage, CancellationToken cancellationToken)
+        IFileStorage storage, IMessageBus messageBus, ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
         {
@@ -968,6 +991,12 @@ public static class EssayEndpoints
         });
         await session.SaveChangesAsync(cancellationToken);
 
+        if (errors.Count == 0)
+        {
+            await PublishSubmissionReportingRefreshAsync(messageBus, loggerFactory,
+                actor.OrganizationId, assignment.LearningClassId, actor.UserId);
+        }
+
         return errors.Count == 0
             ? Results.Created($"/api/assessment/essay-submissions/{submissionId:D}",
                 EssaySubmissionResponse.From(submission, errors.ToArray()))
@@ -976,6 +1005,24 @@ public static class EssayEndpoints
                 error = "The report failed pre-submission validation.",
                 submission = EssaySubmissionResponse.From(submission, errors.ToArray())
             });
+    }
+
+    private static async Task PublishSubmissionReportingRefreshAsync(IMessageBus messageBus,
+        ILoggerFactory loggerFactory, Guid organizationId, Guid classId, Guid studentId)
+    {
+        try
+        {
+            await messageBus.PublishAsync(new SubmissionChangedForReporting(organizationId, classId,
+                studentId));
+        }
+        catch (Exception exception)
+        {
+            // Accepted submission metadata is durable even if the asynchronous
+            // reporting queue is temporarily unavailable.
+            loggerFactory.CreateLogger("LearningPlatform.Assessment.Submission").LogWarning(exception,
+                "Unable to enqueue essay submission reporting refresh for {ClassId}/{StudentId}.",
+                classId, studentId);
+        }
     }
 
     private static async Task<IResult> GetSubmissionFileAsync(Guid submissionId,

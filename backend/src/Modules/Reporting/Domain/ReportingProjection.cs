@@ -1,5 +1,7 @@
 using LearningPlatform.Assessment.Domain;
+using LearningPlatform.Assessment.Contracts;
 using LearningPlatform.Academics.Domain;
+using LearningPlatform.Academics.Contracts;
 using LearningPlatform.Classroom.Attendance;
 using LearningPlatform.Classroom.Domain;
 using LearningPlatform.Learning.Contracts;
@@ -11,6 +13,44 @@ namespace LearningPlatform.Reporting.Domain;
 
 public static class ReportingProjectionHandler
 {
+    public static async Task Handle(EnrollmentChangedForReporting message, IDocumentStore store,
+        CancellationToken cancellationToken)
+    {
+        await RebuildClassAsync(store, message.OrganizationId, message.LearningClassId,
+            cancellationToken);
+        if (message.Status == EnrollmentStatus.Active)
+        {
+            await RebuildStudentAsync(store, message.OrganizationId, message.LearningClassId,
+                message.StudentId, cancellationToken);
+        }
+    }
+
+    public static Task Handle(AssessmentActivityChangedForReporting message, IDocumentStore store,
+        CancellationToken cancellationToken) =>
+        RebuildClassAndActiveStudentsAsync(store, message.OrganizationId, message.LearningClassId,
+            cancellationToken);
+
+    public static Task Handle(EssayAssignmentChangedForReporting message, IDocumentStore store,
+        CancellationToken cancellationToken) =>
+        RebuildClassAndActiveStudentsAsync(store, message.OrganizationId, message.LearningClassId,
+            cancellationToken);
+
+    public static async Task Handle(SubmissionChangedForReporting message, IDocumentStore store,
+        CancellationToken cancellationToken)
+    {
+        await RebuildClassAsync(store, message.OrganizationId, message.LearningClassId,
+            cancellationToken);
+        await using var query = store.QuerySession(message.OrganizationId.ToString("D"));
+        if (await query.Query<Enrollment>().AnyAsync(value =>
+                value.LearningClassId == message.LearningClassId &&
+                value.StudentId == message.StudentId && value.Status == EnrollmentStatus.Active,
+                cancellationToken))
+        {
+            await RebuildStudentAsync(store, message.OrganizationId, message.LearningClassId,
+                message.StudentId, cancellationToken);
+        }
+    }
+
     public static async Task Handle(GradeEntryPublishedForReporting message, IDocumentStore store,
         CancellationToken cancellationToken)
     {
@@ -32,17 +72,23 @@ public static class ReportingProjectionHandler
     public static async Task Handle(GradeItemChangedForReporting message, IDocumentStore store,
         CancellationToken cancellationToken)
     {
-        await RebuildClassAsync(store, message.OrganizationId, message.LearningClassId,
-            cancellationToken);
-        await using var query = store.QuerySession(message.OrganizationId.ToString("D"));
+        await RebuildClassAndActiveStudentsAsync(store, message.OrganizationId,
+            message.LearningClassId, cancellationToken);
+    }
+
+    private static async Task RebuildClassAndActiveStudentsAsync(IDocumentStore store,
+        Guid organizationId, Guid classId, CancellationToken cancellationToken)
+    {
+        await RebuildClassAsync(store, organizationId, classId, cancellationToken);
+        await using var query = store.QuerySession(organizationId.ToString("D"));
         var studentIds = await query.Query<Enrollment>()
-            .Where(value => value.LearningClassId == message.LearningClassId &&
+            .Where(value => value.LearningClassId == classId &&
                 value.Status == EnrollmentStatus.Active)
             .Select(value => value.StudentId)
             .ToListAsync(cancellationToken);
         foreach (var studentId in studentIds.Distinct())
         {
-            await RebuildStudentAsync(store, message.OrganizationId, message.LearningClassId,
+            await RebuildStudentAsync(store, organizationId, classId,
                 studentId, cancellationToken);
         }
     }
@@ -53,6 +99,11 @@ public static class ReportingProjectionHandler
         await RebuildStudentAsync(store, message.OrganizationId, message.LearningClassId,
             message.StudentId, cancellationToken);
     }
+
+    public static Task Handle(StudentProgressChangedForReporting message, IDocumentStore store,
+        CancellationToken cancellationToken) =>
+        RebuildStudentAsync(store, message.OrganizationId, message.LearningClassId,
+            message.StudentId, cancellationToken);
 
     public static async Task Handle(LiveSessionEndedForReporting message, IDocumentStore store,
         CancellationToken cancellationToken)

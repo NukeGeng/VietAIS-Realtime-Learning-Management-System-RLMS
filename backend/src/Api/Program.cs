@@ -10,8 +10,10 @@ using LearningPlatform.Learning;
 using LearningPlatform.Learning.Api;
 using LearningPlatform.Academics;
 using LearningPlatform.Academics.Api;
+using LearningPlatform.Academics.Contracts;
 using LearningPlatform.Assessment;
 using LearningPlatform.Assessment.Api;
+using LearningPlatform.Assessment.Contracts;
 using LearningPlatform.Assessment.Realtime;
 using LearningPlatform.Classroom;
 using LearningPlatform.Classroom.Api;
@@ -51,6 +53,7 @@ builder.UseWolverine(options =>
     options.PublishMessage<LiveSessionEnded>().ToLocalQueue("attendance");
     options.PublishMessage<LiveSessionEndedForReporting>().ToLocalQueue("reporting-projection");
     options.PublishMessage<AttendanceRecordChangedForReporting>().ToLocalQueue("reporting-projection");
+    options.PublishMessage<EnrollmentChangedForReporting>().ToLocalQueue("reporting-projection");
     options.LocalQueue("activity-projection").Sequential();
     options.PublishMessage<StudentActivityChanged>().ToLocalQueue("activity-projection");
     options.LocalQueue("learning-progress").Sequential();
@@ -65,6 +68,14 @@ builder.UseWolverine(options =>
     options.PublishMessage<LearningPlatform.Learning.Contracts.GradeItemChangedForReporting>()
         .ToLocalQueue("reporting-projection");
     options.PublishMessage<LearningPlatform.Learning.Contracts.LessonProgressChangedForReporting>()
+        .ToLocalQueue("reporting-projection");
+    options.PublishMessage<LearningPlatform.Learning.Contracts.StudentProgressChangedForReporting>()
+        .ToLocalQueue("reporting-projection");
+    options.PublishMessage<AssessmentActivityChangedForReporting>()
+        .ToLocalQueue("reporting-projection");
+    options.PublishMessage<EssayAssignmentChangedForReporting>()
+        .ToLocalQueue("reporting-projection");
+    options.PublishMessage<SubmissionChangedForReporting>()
         .ToLocalQueue("reporting-projection");
     options.LocalQueue("reporting-projection").Sequential();
     options.LocalQueue("notifications").Sequential();

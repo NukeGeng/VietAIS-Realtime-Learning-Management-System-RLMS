@@ -405,6 +405,11 @@ các student bị ảnh hưởng không đọc trước trạng thái điểm da
 class và student tương ứng; lỗi reporting không làm mất correction đã lưu.
 Thay đổi trọng số `GradeItem` cũng được lưu trước rồi enqueue refresh cho class và
 các student active để các report phản ánh cấu hình gradebook mới.
+Thay đổi enrollment, lifecycle của assessment/essay và accepted submission cũng phát
+refresh tenant-scoped sau khi durable write hoàn tất; enrollment active tạo hoặc cập
+nhật snapshot student, còn drop chỉ cần cập nhật class count. Learning progress phát
+thêm một reporting refresh sau khi projection điểm đã commit để tách race giữa queue
+learning và queue reporting.
 
 ---
 

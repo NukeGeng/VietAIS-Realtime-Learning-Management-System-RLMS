@@ -3,6 +3,10 @@ using System.Net.Http.Json;
 using LearningPlatform.Academics.Api;
 using LearningPlatform.Academics.Domain;
 using LearningPlatform.Communication.Api;
+using LearningPlatform.Reporting.Api;
+using LearningPlatform.Reporting.Domain;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace LearningPlatform.IntegrationTests;
 
@@ -123,6 +127,113 @@ public sealed class ClassEnrollmentTests(FoundationFixture fixture) : IClassFixt
             $"/api/academics/classes/{learningClass.Id:D}/schedules/{createdSchedule.Id:D}/cancel",
             new { });
         Assert.Equal(HttpStatusCode.NoContent, cancelled.StatusCode);
+    }
+
+    [Fact]
+    public async Task Enrollment_changes_refresh_class_and_active_student_reporting_snapshots()
+    {
+        var organization = await fixture.EnsureBootstrappedAsync();
+        using var teacher = fixture.Client();
+        FoundationFixture.SetCookies(teacher, await fixture.LoginCookieAsync());
+        var course = await CreatePublishedCourseAsync(teacher);
+        var startDate = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+
+        using var createClass = await PostWithCsrfAsync(teacher, "/api/academics/classes", new
+        {
+            CourseId = course.Id,
+            Code = $"CLS-{Guid.NewGuid():N}"[..12],
+            Name = "Reporting enrollment class",
+            StartDate = startDate,
+            EndDate = startDate.AddMonths(1)
+        });
+        createClass.EnsureSuccessStatusCode();
+        var learningClass = (await createClass.Content.ReadFromJsonAsync<ClassResponse>())!;
+
+        var firstStudent = await fixture.CreateTestAccountAsync(
+            $"reporting-student-{Guid.NewGuid():N}@rlms.test", "reporting student password", "STUDENT");
+        using var firstEnrollment = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/enrollments", new
+            {
+                StudentId = firstStudent.UserId
+            });
+        firstEnrollment.EnsureSuccessStatusCode();
+
+        using var initialSummary = await teacher.GetAsync(
+            $"/api/reporting/classes/{learningClass.Id:D}/summary");
+        initialSummary.EnsureSuccessStatusCode();
+        var initialResponse = (await initialSummary.Content.ReadFromJsonAsync<ClassReportResponse>())!;
+        Assert.Equal(1, initialResponse.ActiveEnrollmentCount);
+
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+        ClassReportSnapshot initialSnapshot;
+        await using (var query = store.QuerySession(organization.OrganizationId.ToString("D")))
+        {
+            initialSnapshot = (await query.LoadAsync<ClassReportSnapshot>(
+                ReportingConstants.ClassSnapshotId(learningClass.Id)))!;
+        }
+
+        var secondStudent = await fixture.CreateTestAccountAsync(
+            $"reporting-second-{Guid.NewGuid():N}@rlms.test", "second reporting password", "STUDENT");
+        using var secondEnrollment = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/enrollments", new
+            {
+                StudentId = secondStudent.UserId
+            });
+        secondEnrollment.EnsureSuccessStatusCode();
+
+        ClassReportSnapshot? afterEnroll = null;
+        StudentReportSnapshot? secondReport = null;
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (afterEnroll is null || afterEnroll.ActiveEnrollmentCount != 2 ||
+                   afterEnroll.Version <= initialSnapshot.Version || secondReport is null)
+            {
+                await using var query = store.QuerySession(organization.OrganizationId.ToString("D"));
+                afterEnroll = await query.LoadAsync<ClassReportSnapshot>(
+                    ReportingConstants.ClassSnapshotId(learningClass.Id), timeout.Token);
+                secondReport = await query.LoadAsync<StudentReportSnapshot>(
+                    ReportingConstants.StudentSnapshotId(learningClass.Id, secondStudent.UserId),
+                    timeout.Token);
+                if (afterEnroll?.ActiveEnrollmentCount == 2 &&
+                    afterEnroll.Version > initialSnapshot.Version && secondReport is not null)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+
+        Assert.NotNull(afterEnroll);
+        Assert.Equal(2, afterEnroll!.ActiveEnrollmentCount);
+        Assert.True(afterEnroll.Version > initialSnapshot.Version);
+        Assert.NotNull(secondReport);
+
+        using var drop = await DeleteWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/enrollments/{secondStudent.UserId:D}");
+        Assert.Equal(HttpStatusCode.NoContent, drop.StatusCode);
+
+        ClassReportSnapshot? afterDrop = null;
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (afterDrop is null || afterDrop.ActiveEnrollmentCount != 1 ||
+                   afterDrop.Version <= afterEnroll.Version)
+            {
+                await using var query = store.QuerySession(organization.OrganizationId.ToString("D"));
+                afterDrop = await query.LoadAsync<ClassReportSnapshot>(
+                    ReportingConstants.ClassSnapshotId(learningClass.Id), timeout.Token);
+                if (afterDrop?.ActiveEnrollmentCount == 1 && afterDrop.Version > afterEnroll.Version)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+
+        Assert.NotNull(afterDrop);
+        Assert.Equal(1, afterDrop!.ActiveEnrollmentCount);
+        Assert.True(afterDrop.Version > afterEnroll.Version);
     }
 
     [Fact]
@@ -264,5 +375,18 @@ public sealed class ClassEnrollmentTests(FoundationFixture fixture) : IClassFixt
         client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
         client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf.Token);
         return await client.PostAsJsonAsync(path, body);
+    }
+
+    private async Task<HttpResponseMessage> DeleteWithCsrfAsync(HttpClient client, string path)
+    {
+        var authCookie = client.DefaultRequestHeaders.GetValues("Cookie").Single()
+            .Split(';', StringSplitOptions.TrimEntries)
+            .Single(cookie => cookie.StartsWith("__Host-rlms=", StringComparison.Ordinal));
+        FoundationFixture.SetCookies(client, authCookie);
+        var csrf = await fixture.IssueCsrfAsync(client);
+        FoundationFixture.SetCookies(client, authCookie, csrf.Cookie);
+        client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
+        client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf.Token);
+        return await client.DeleteAsync(path);
     }
 }
