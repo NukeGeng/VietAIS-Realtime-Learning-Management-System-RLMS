@@ -104,7 +104,17 @@ public static class AttendanceParticipantJoinedHandler
         await using var session = store.LightweightSession(message.OrganizationId.ToString("D"));
         var liveSession = await session.LoadAsync<LiveSession>(message.LiveSessionId, cancellationToken);
         if (liveSession is null || liveSession.OrganizationId != message.OrganizationId ||
-            liveSession.Status != LiveSessionStatus.Started)
+            liveSession.Status is not (LiveSessionStatus.Started or LiveSessionStatus.Ended))
+        {
+            return;
+        }
+
+        // A join accepted before the room ended can reach this sequential
+        // handler after the end message. Preserve that historical join and
+        // close it at the durable end time; a join created after the end is
+        // ignored so it cannot resurrect attendance.
+        if (liveSession.Status == LiveSessionStatus.Ended &&
+            (liveSession.EndedAt is null || message.JoinedAt >= liveSession.EndedAt.Value))
         {
             return;
         }
@@ -121,6 +131,7 @@ public static class AttendanceParticipantJoinedHandler
         var id = ClassroomConstants.AttendanceRecordId(message.LiveSessionId, message.StudentId);
         var record = await session.LoadAsync<AttendanceRecord>(id, cancellationToken);
         var connectionId = AttendanceConnection.Normalize(message.ConnectionId);
+        var inserted = false;
         if (record is null)
         {
             record = new AttendanceRecord
@@ -140,6 +151,7 @@ public static class AttendanceParticipantJoinedHandler
                 UpdatedAt = message.JoinedAt
             };
             session.Insert(record);
+            inserted = true;
         }
         else if (record.AdjustedBy is null)
         {
@@ -172,6 +184,26 @@ public static class AttendanceParticipantJoinedHandler
 
             record.UpdatedAt = message.JoinedAt;
             session.Update(record);
+        }
+
+        if (liveSession.Status == LiveSessionStatus.Ended && liveSession.EndedAt is { } endedAt &&
+            record.AdjustedBy is null)
+        {
+            if (record.CurrentJoinedAt is { } joinedAt && endedAt > joinedAt)
+            {
+                record.TotalDuration += endedAt - joinedAt;
+                record.CurrentJoinedAt = null;
+                record.LastLeftAt = record.LastLeftAt is { } lastLeftAt && lastLeftAt > endedAt
+                    ? lastLeftAt
+                    : endedAt;
+            }
+
+            record.ActiveConnectionIds = [];
+            record.UpdatedAt = endedAt;
+            if (!inserted)
+            {
+                session.Update(record);
+            }
         }
 
         await session.SaveChangesAsync(cancellationToken);

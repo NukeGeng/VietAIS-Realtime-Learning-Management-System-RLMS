@@ -91,12 +91,14 @@ accumulate duration, classify late/absent records at session end, and remain
 idempotent when delivery is retried. Each open attendance segment tracks its active
 connection IDs, so closing one browser or SignalR connection cannot close the segment
 while another connection for the same student remains. The three attendance message
-types share a durable sequential local queue, preserving join/leave/end order for a
-session while allowing the live request to return immediately. Teacher adjustments keep
-the actor and reason for audit. Redis presence is never used as the attendance source
-of truth. After the attendance end transaction commits, the handler enqueues a reporting
+types share a durable sequential local queue, serializing join/leave/end processing for a
+session while allowing the live request to return immediately. A join accepted before the
+durable end time is finalized even if its message is delayed; joins after end are ignored.
+Teacher adjustments keep the actor and reason for audit. Redis presence is never the
+attendance source of truth. After the attendance end transaction commits, the handler
+enqueues a reporting
 refresh so class and affected student attendance snapshots observe the finalized
-records; a join message delivered after the durable session has ended is ignored.
+records; late messages cannot reopen an ended session.
 Teacher attendance adjustments enqueue the same tenant-scoped reporting
 refresh boundary after the durable correction commits.
 
