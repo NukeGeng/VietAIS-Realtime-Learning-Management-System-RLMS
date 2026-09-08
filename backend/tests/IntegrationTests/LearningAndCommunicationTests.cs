@@ -2,11 +2,13 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using LearningPlatform.Academics.Api;
+using LearningPlatform.Academics.Domain;
 using LearningPlatform.Communication.Api;
 using LearningPlatform.Communication.Domain;
 using LearningPlatform.Identity.Domain;
 using LearningPlatform.Learning.Api;
 using LearningPlatform.Learning.Domain;
+using LearningPlatform.Reporting.Api;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Wolverine;
@@ -80,6 +82,105 @@ public sealed class LearningAndCommunicationTests(FoundationFixture fixture)
         Assert.NotNull(teacher);
         Assert.Equal(100m, teacher!.CompletionPercent);
         Assert.Equal(student.UserId, Assert.Single(teacher.Entries).StudentId);
+    }
+
+    [Fact]
+    public async Task Published_lesson_changes_refresh_student_reporting_snapshot()
+    {
+        using var administrator = fixture.Client();
+        FoundationFixture.SetCookies(administrator, await fixture.LoginCookieAsync());
+        var (learningClass, lesson) = await CreateClassWithLessonAsync(administrator);
+        var studentEmail = $"lesson-report-student-{Guid.NewGuid():N}@rlms.test";
+        var studentPassword = "lesson report student password";
+        var student = await fixture.CreateTestAccountAsync(studentEmail, studentPassword, "STUDENT");
+        using var enroll = await PostWithCsrfAsync(administrator,
+            $"/api/academics/classes/{learningClass.Id:D}/enrollments", new
+            {
+                StudentId = student.UserId
+            });
+        Assert.Equal(HttpStatusCode.Created, enroll.StatusCode);
+
+        using var studentClient = fixture.Client();
+        FoundationFixture.SetCookies(studentClient,
+            await fixture.LoginCookieAsync(studentEmail, studentPassword));
+        using var initialResponse = await studentClient.GetAsync(
+            $"/api/reporting/classes/{learningClass.Id:D}/students/me");
+        Assert.Equal(HttpStatusCode.OK, initialResponse.StatusCode);
+        var initial = await initialResponse.Content.ReadFromJsonAsync<StudentReportResponse>();
+        Assert.NotNull(initial);
+        Assert.Equal(1, initial!.LessonCount);
+        var initialVersion = initial.Version;
+
+        using var createLesson = await PostWithCsrfAsync(administrator,
+            $"/api/academics/courses/{lesson.CourseId:D}/modules/{lesson.CourseModuleId:D}/lessons",
+            new
+            {
+                Title = "Second lesson",
+                Order = 1,
+                ContentSummary = "Second lesson content"
+            });
+        Assert.Equal(HttpStatusCode.Created, createLesson.StatusCode);
+        var secondLesson = await createLesson.Content.ReadFromJsonAsync<LessonResponse>();
+        Assert.NotNull(secondLesson);
+        Assert.Equal(AcademicContentStatus.Draft, secondLesson!.Status);
+
+        using var publishLesson = await PostWithCsrfAsync(administrator,
+            $"/api/academics/courses/{lesson.CourseId:D}/modules/{lesson.CourseModuleId:D}/lessons/{secondLesson.Id:D}/publish",
+            new { });
+        Assert.Equal(HttpStatusCode.OK, publishLesson.StatusCode);
+
+        StudentReportResponse? published = null;
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (published is null || published.LessonCount != 2 ||
+                   published.Version <= initialVersion)
+            {
+                using var response = await studentClient.GetAsync(
+                    $"/api/reporting/classes/{learningClass.Id:D}/students/me", timeout.Token);
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                published = await response.Content.ReadFromJsonAsync<StudentReportResponse>(
+                    timeout.Token);
+                if (published?.LessonCount == 2 && published.Version > initialVersion)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+
+        Assert.NotNull(published);
+        Assert.Equal(2, published!.LessonCount);
+        var publishedVersion = published.Version;
+
+        using var archiveLesson = await PostWithCsrfAsync(administrator,
+            $"/api/academics/courses/{lesson.CourseId:D}/modules/{lesson.CourseModuleId:D}/lessons/{secondLesson.Id:D}/archive",
+            new { });
+        Assert.Equal(HttpStatusCode.OK, archiveLesson.StatusCode);
+
+        StudentReportResponse? archived = null;
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (archived is null || archived.LessonCount != 1 ||
+                   archived.Version <= publishedVersion)
+            {
+                using var response = await studentClient.GetAsync(
+                    $"/api/reporting/classes/{learningClass.Id:D}/students/me", timeout.Token);
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                archived = await response.Content.ReadFromJsonAsync<StudentReportResponse>(
+                    timeout.Token);
+                if (archived?.LessonCount == 1 && archived.Version > publishedVersion)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+
+        Assert.NotNull(archived);
+        Assert.Equal(1, archived!.LessonCount);
+        Assert.True(archived.Version > publishedVersion);
     }
 
     [Fact]

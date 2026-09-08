@@ -1,4 +1,5 @@
 using JasperFx;
+using LearningPlatform.Academics.Contracts;
 using LearningPlatform.Academics.Domain;
 using LearningPlatform.Identity.Authorization;
 using LearningPlatform.Identity.Domain;
@@ -6,6 +7,8 @@ using Marten;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
+using Wolverine;
 
 namespace LearningPlatform.Academics.Api;
 
@@ -255,6 +258,7 @@ public static class AcademicEndpoints
 
     private static async Task<IResult> PublishCourseAsync(
         Guid courseId, HttpContext context, IDocumentSession session,
+        IMessageBus messageBus, ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -302,6 +306,7 @@ public static class AcademicEndpoints
 
         session.Update(course);
         await session.SaveChangesAsync(cancellationToken);
+        await PublishCourseContentReportingRefreshAsync(messageBus, loggerFactory, course);
         return Results.Ok(CourseResponse.From(course));
     }
 
@@ -343,28 +348,32 @@ public static class AcademicEndpoints
     }
 
     private static Task<IResult> PublishModuleAsync(Guid courseId, Guid moduleId,
-        HttpContext context, IDocumentSession session, CancellationToken cancellationToken) =>
+        HttpContext context, IDocumentSession session, IMessageBus messageBus,
+        ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         ChangeContentStatusAsync(courseId, moduleId, null, AcademicContentStatus.Published,
-            context, session, cancellationToken);
+            context, session, messageBus, loggerFactory, cancellationToken);
 
     private static Task<IResult> PublishLessonAsync(Guid courseId, Guid moduleId, Guid lessonId,
-        HttpContext context, IDocumentSession session, CancellationToken cancellationToken) =>
+        HttpContext context, IDocumentSession session, IMessageBus messageBus,
+        ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         ChangeContentStatusAsync(courseId, moduleId, lessonId, AcademicContentStatus.Published,
-            context, session, cancellationToken);
+            context, session, messageBus, loggerFactory, cancellationToken);
 
     private static Task<IResult> ArchiveModuleAsync(Guid courseId, Guid moduleId,
-        HttpContext context, IDocumentSession session, CancellationToken cancellationToken) =>
+        HttpContext context, IDocumentSession session, IMessageBus messageBus,
+        ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         ChangeContentStatusAsync(courseId, moduleId, null, AcademicContentStatus.Archived,
-            context, session, cancellationToken);
+            context, session, messageBus, loggerFactory, cancellationToken);
 
     private static Task<IResult> ArchiveLessonAsync(Guid courseId, Guid moduleId, Guid lessonId,
-        HttpContext context, IDocumentSession session, CancellationToken cancellationToken) =>
+        HttpContext context, IDocumentSession session, IMessageBus messageBus,
+        ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         ChangeContentStatusAsync(courseId, moduleId, lessonId, AcademicContentStatus.Archived,
-            context, session, cancellationToken);
+            context, session, messageBus, loggerFactory, cancellationToken);
 
     private static async Task<IResult> ChangeContentStatusAsync(Guid courseId, Guid moduleId,
         Guid? lessonId, AcademicContentStatus target, HttpContext context, IDocumentSession session,
-        CancellationToken cancellationToken)
+        IMessageBus messageBus, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out _))
         {
@@ -411,6 +420,7 @@ public static class AcademicEndpoints
             }
             session.Update(module);
             await session.SaveChangesAsync(cancellationToken);
+            await PublishCourseContentReportingRefreshAsync(messageBus, loggerFactory, course);
             return Results.Ok(ModuleResponse.From(module));
         }
 
@@ -433,7 +443,25 @@ public static class AcademicEndpoints
         lesson.Status = target;
         session.Update(lesson);
         await session.SaveChangesAsync(cancellationToken);
+        await PublishCourseContentReportingRefreshAsync(messageBus, loggerFactory, course);
         return Results.Ok(LessonResponse.From(lesson));
+    }
+
+    private static async Task PublishCourseContentReportingRefreshAsync(IMessageBus messageBus,
+        ILoggerFactory loggerFactory, Course course)
+    {
+        try
+        {
+            await messageBus.PublishAsync(new CourseContentChangedForReporting(course.OrganizationId,
+                course.Id));
+        }
+        catch (Exception exception)
+        {
+            // Course content remains durable even if the asynchronous reporting
+            // queue is temporarily unavailable.
+            loggerFactory.CreateLogger("LearningPlatform.Academics.CourseContent").LogWarning(exception,
+                "Unable to enqueue course-content reporting refresh for {CourseId}.", course.Id);
+        }
     }
 
     private static async Task<IResult> CreateModuleAsync(

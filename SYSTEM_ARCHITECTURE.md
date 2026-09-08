@@ -409,7 +409,9 @@ Thay đổi enrollment, lifecycle của assessment/essay và accepted submission
 refresh tenant-scoped sau khi durable write hoàn tất; enrollment active tạo hoặc cập
 nhật snapshot student, còn drop chỉ cần cập nhật class count. Learning progress phát
 thêm một reporting refresh sau khi projection điểm đã commit để tách race giữa queue
-learning và queue reporting.
+learning và queue reporting. Khi lesson/module/course content được publish hoặc
+archive, Academics phát refresh tenant-scoped cho các student active trong mọi class
+dùng course đó để lesson count và completion percentage không bị stale.
 
 ---
 

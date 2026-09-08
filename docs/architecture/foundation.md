@@ -180,6 +180,9 @@ snapshot while a drop refreshes the class count. Grade-item weight changes enque
 refresh for the class and its active students. The Learning progress handler emits a
 follow-up reporting refresh after its own grade projection commits, preventing the
 independent queues from leaving a report permanently ahead of progress state.
+Published or archived course content also enqueues a tenant-scoped refresh for the
+active students in every class using that course, keeping lesson counts and completion
+percentages aligned with the published lesson set.
 
 ## Implementation references
 
