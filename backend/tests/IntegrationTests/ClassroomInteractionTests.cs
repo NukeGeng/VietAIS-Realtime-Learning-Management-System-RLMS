@@ -135,6 +135,36 @@ public sealed class ClassroomInteractionTests(FoundationFixture fixture) : IClas
         var adjustedSummary = await afterAdjustment.Content.ReadFromJsonAsync<AttendanceSummaryResponse>();
         Assert.Equal(AttendanceStatus.Excused,
             Assert.Single(adjustedSummary!.Records, record => record.StudentId == setup.SecondStudentId).Status);
+
+        var organization = await fixture.EnsureBootstrappedAsync();
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+        ClassReportSnapshot? classReport = null;
+        StudentReportSnapshot? studentReport = null;
+        using (var reportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (classReport is null || classReport.AttendanceExcusedCount != 1 ||
+                   studentReport is null || studentReport.AttendanceExcusedCount != 1)
+            {
+                await using var query = store.QuerySession(organization.OrganizationId.ToString("D"));
+                classReport = await query.LoadAsync<ClassReportSnapshot>(
+                    ReportingConstants.ClassSnapshotId(setup.ClassId), reportTimeout.Token);
+                studentReport = await query.LoadAsync<StudentReportSnapshot>(
+                    ReportingConstants.StudentSnapshotId(setup.ClassId, setup.SecondStudentId),
+                    reportTimeout.Token);
+                if (classReport?.AttendanceExcusedCount == 1 &&
+                    studentReport?.AttendanceExcusedCount == 1)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, reportTimeout.Token);
+            }
+        }
+
+        Assert.NotNull(classReport);
+        Assert.Equal(1, classReport!.AttendanceExcusedCount);
+        Assert.NotNull(studentReport);
+        Assert.Equal(1, studentReport!.AttendanceExcusedCount);
     }
 
     [Fact]
@@ -183,16 +213,26 @@ public sealed class ClassroomInteractionTests(FoundationFixture fixture) : IClas
             CancellationToken.None);
 
         ClassReportSnapshot? report = null;
+        StudentReportSnapshot? presentStudentReport = null;
+        StudentReportSnapshot? absentStudentReport = null;
         using (var reportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
         {
             while (report is null || report.AttendanceSessionCount != 1 ||
-                   report.AttendancePresentCount != 1 || report.AttendanceAbsentCount != 1)
+                   report.AttendancePresentCount != 1 || report.AttendanceAbsentCount != 1 ||
+                   presentStudentReport is null || presentStudentReport.AttendancePresentCount != 1 ||
+                   absentStudentReport is null || absentStudentReport.AttendanceAbsentCount != 1)
             {
                 await using var query = store.QuerySession(organization.OrganizationId.ToString("D"));
                 report = await query.LoadAsync<ClassReportSnapshot>(
                     ReportingConstants.ClassSnapshotId(setup.ClassId), reportTimeout.Token);
+                presentStudentReport = await query.LoadAsync<StudentReportSnapshot>(
+                    ReportingConstants.StudentSnapshotId(setup.ClassId, setup.StudentId), reportTimeout.Token);
+                absentStudentReport = await query.LoadAsync<StudentReportSnapshot>(
+                    ReportingConstants.StudentSnapshotId(setup.ClassId, setup.SecondStudentId), reportTimeout.Token);
                 if (report is not null && report.AttendanceSessionCount == 1 &&
-                    report.AttendancePresentCount == 1 && report.AttendanceAbsentCount == 1)
+                    report.AttendancePresentCount == 1 && report.AttendanceAbsentCount == 1 &&
+                    presentStudentReport?.AttendancePresentCount == 1 &&
+                    absentStudentReport?.AttendanceAbsentCount == 1)
                 {
                     break;
                 }
@@ -205,6 +245,10 @@ public sealed class ClassroomInteractionTests(FoundationFixture fixture) : IClas
         Assert.Equal(1, report!.AttendanceSessionCount);
         Assert.Equal(1, report.AttendancePresentCount);
         Assert.Equal(1, report.AttendanceAbsentCount);
+        Assert.NotNull(presentStudentReport);
+        Assert.Equal(1, presentStudentReport!.AttendancePresentCount);
+        Assert.NotNull(absentStudentReport);
+        Assert.Equal(1, absentStudentReport!.AttendanceAbsentCount);
     }
 
     private async Task<SessionSetup> CreateStartedSessionAsync(bool includeSecondStudent = false)

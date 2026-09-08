@@ -1,5 +1,6 @@
 using LearningPlatform.Academics.Authorization;
 using LearningPlatform.Academics.Domain;
+using LearningPlatform.Classroom.Attendance;
 using LearningPlatform.Classroom.Domain;
 using LearningPlatform.Identity.Authorization;
 using Marten;
@@ -8,6 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
+using Wolverine;
 
 namespace LearningPlatform.Classroom.Api;
 
@@ -65,6 +67,7 @@ public static class AttendanceEndpoints
         IAcademicDirectory academics,
         IHubContext<LiveSessionHub> hub,
         ILogger<LiveSessionHub> logger,
+        IMessageBus messageBus,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -133,6 +136,20 @@ public static class AttendanceEndpoints
                 session.Update(record);
             }
             await session.SaveChangesAsync(cancellationToken);
+
+            try
+            {
+                await messageBus.PublishAsync(new AttendanceRecordChangedForReporting(
+                    actor.OrganizationId, liveSession.LearningClassId, studentId));
+            }
+            catch (Exception exception)
+            {
+                // Reporting is asynchronous and must not make a durable
+                // attendance correction fail.
+                logger.LogWarning(exception,
+                    "Unable to enqueue attendance reporting refresh for {SessionId}/{StudentId}.",
+                    sessionId, studentId);
+            }
 
             var response = AttendanceRecordResponse.From(record);
             try

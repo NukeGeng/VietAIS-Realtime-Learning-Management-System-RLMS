@@ -399,8 +399,10 @@ mở để một disconnect không đóng segment còn được sử dụng. Khi
 handler đóng segment còn mở và tạo bản ghi vắng cho student chưa từng join. Chat
 ghi durable message trước khi broadcast; SignalR delivery có thể thất bại mà không
 làm mất lịch sử chat hoặc ảnh hưởng media/answer/submit. Sau khi transaction kết thúc
-attendance commit, handler mới phát tín hiệu refresh cho reporting để snapshot không
-đọc trước trạng thái điểm danh cuối phiên.
+attendance commit, handler mới phát tín hiệu refresh cho reporting để snapshot lớp và
+các student bị ảnh hưởng không đọc trước trạng thái điểm danh cuối phiên. Khi teacher
+điều chỉnh attendance, API lưu correction trước rồi enqueue refresh tenant-scoped cho
+class và student tương ứng; lỗi reporting không làm mất correction đã lưu.
 
 ---
 

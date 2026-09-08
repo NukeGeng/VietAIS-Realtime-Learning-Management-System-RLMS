@@ -41,6 +41,20 @@ public static class ReportingProjectionHandler
     {
         var classId = await FindClassIdAsync(store, message, cancellationToken);
         await RebuildClassAsync(store, message.OrganizationId, classId, cancellationToken);
+        foreach (var studentId in message.StudentIds.Distinct())
+        {
+            await RebuildStudentAsync(store, message.OrganizationId, classId, studentId,
+                cancellationToken);
+        }
+    }
+
+    public static async Task Handle(AttendanceRecordChangedForReporting message,
+        IDocumentStore store, CancellationToken cancellationToken)
+    {
+        await RebuildClassAsync(store, message.OrganizationId, message.LearningClassId,
+            cancellationToken);
+        await RebuildStudentAsync(store, message.OrganizationId, message.LearningClassId,
+            message.StudentId, cancellationToken);
     }
 
     private static async Task<Guid> FindClassIdAsync(IDocumentStore store,

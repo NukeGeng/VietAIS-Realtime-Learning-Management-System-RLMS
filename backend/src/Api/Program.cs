@@ -50,6 +50,7 @@ builder.UseWolverine(options =>
     options.PublishMessage<LiveSessionParticipantLeft>().ToLocalQueue("attendance");
     options.PublishMessage<LiveSessionEnded>().ToLocalQueue("attendance");
     options.PublishMessage<LiveSessionEndedForReporting>().ToLocalQueue("reporting-projection");
+    options.PublishMessage<AttendanceRecordChangedForReporting>().ToLocalQueue("reporting-projection");
     options.LocalQueue("activity-projection").Sequential();
     options.PublishMessage<StudentActivityChanged>().ToLocalQueue("activity-projection");
     options.LocalQueue("learning-progress").Sequential();

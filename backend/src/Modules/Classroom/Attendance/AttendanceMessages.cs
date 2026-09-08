@@ -28,7 +28,13 @@ public sealed record LiveSessionEnded(
 public sealed record LiveSessionEndedForReporting(
     Guid OrganizationId,
     Guid LiveSessionId,
-    DateTimeOffset EndedAt);
+    DateTimeOffset EndedAt,
+    Guid[] StudentIds);
+
+public sealed record AttendanceRecordChangedForReporting(
+    Guid OrganizationId,
+    Guid LearningClassId,
+    Guid StudentId);
 
 public static class AttendanceMessagePublisher
 {
@@ -303,7 +309,7 @@ public static class AttendanceSessionEndedHandler
         // independent and publishing both messages at the HTTP boundary could
         // otherwise let reporting race ahead of attendance finalization.
         await messageBus.PublishAsync(new LiveSessionEndedForReporting(
-            message.OrganizationId, message.LiveSessionId, message.EndedAt));
+            message.OrganizationId, message.LiveSessionId, message.EndedAt, enrollments.ToArray()));
     }
 
 }
