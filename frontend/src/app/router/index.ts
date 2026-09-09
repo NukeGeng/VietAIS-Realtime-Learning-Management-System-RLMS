@@ -71,17 +71,22 @@ router.beforeEach(async (to) => {
 })
 
 router.afterEach((to) => {
+  const auth = useAuthStore()
+  const routeTitle = String(to.meta.title || (to.name !== 'login' ? to.name : 'RLMS') || 'RLMS')
+  const title = to.name === 'calendar' && auth.role === 'teacher'
+    ? 'Lịch giảng'
+    : routeTitle
   if (to.name !== 'login' && to.name !== 'not-found') {
     const navigation = useNavigationStore()
     const key = `${String(to.name)}:${JSON.stringify(to.params)}`
     navigation.addTab({
       key,
-      title: String(to.meta.title || to.name || 'RLMS'),
+      title,
       route: to.fullPath,
       closable: to.name !== 'dashboard'
     })
   }
-  document.title = `${String(to.meta.title || 'RLMS')} · RLMS`
+  document.title = `${title} · RLMS`
 })
 
 export default router
