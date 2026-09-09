@@ -5,10 +5,10 @@
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-mark">R</span>
-        <span v-if="!navigation.collapsed" class="brand-word">RLMS</span>
+        <span class="brand-word sidebar-label" :class="{ 'sidebar-label-hidden': navigation.collapsed }">RLMS</span>
       </div>
 
-      <div v-if="!navigation.collapsed" class="workspace-label">
+      <div class="workspace-label" :class="{ 'workspace-label-hidden': navigation.collapsed }">
         <span>{{ roleLabel }}</span>
         <span class="workspace-dot"></span>
       </div>
@@ -16,16 +16,16 @@
       <nav class="sidebar-nav" aria-label="Điều hướng chính">
         <template v-for="item in items" :key="item.key">
           <RouterLink v-if="item.route" :to="item.route" class="nav-link" :class="{ active: isActive(item.route) }" :title="item.label">
-            <span class="nav-icon">{{ item.icon }}</span><span v-if="!navigation.collapsed">{{ item.label }}</span>
+            <span class="nav-icon">{{ item.icon }}</span><span class="sidebar-label" :class="{ 'sidebar-label-hidden': navigation.collapsed }">{{ item.label }}</span>
           </RouterLink>
           <div v-else class="nav-group">
             <button class="nav-link nav-group-toggle" :class="{ active: groupActive(item) }" :title="item.label" @click="toggleGroup(item.key)">
-              <span class="nav-icon">{{ item.icon }}</span><span v-if="!navigation.collapsed">{{ item.label }}</span>
-              <span v-if="!navigation.collapsed" class="group-chevron" :class="{ open: openGroups.has(item.key) }">⌄</span>
+              <span class="nav-icon">{{ item.icon }}</span><span class="sidebar-label" :class="{ 'sidebar-label-hidden': navigation.collapsed }">{{ item.label }}</span>
+              <span class="group-chevron sidebar-label" :class="[{ open: openGroups.has(item.key) }, { 'sidebar-label-hidden': navigation.collapsed }]">⌄</span>
             </button>
             <div v-if="!navigation.collapsed && openGroups.has(item.key)" class="nav-children">
               <RouterLink v-for="child in item.children" :key="child.key" :to="child.route || '/dashboard'" class="nav-child" :class="{ active: isActive(child.route || '') }">
-                <span class="child-bullet">{{ child.icon }}</span>{{ child.label }}
+                <span class="child-bullet">{{ child.icon }}</span><span>{{ child.label }}</span>
               </RouterLink>
             </div>
           </div>
@@ -34,19 +34,19 @@
 
       <div class="sidebar-footer">
         <RouterLink to="/notifications" class="footer-link" :title="`Thông báo${unreadCount ? ` (${unreadCount})` : ''}`">
-          <span class="nav-icon">♢</span><span v-if="!navigation.collapsed">Thông báo</span>
+          <span class="nav-icon">♢</span><span class="sidebar-label" :class="{ 'sidebar-label-hidden': navigation.collapsed }">Thông báo</span>
           <span v-if="unreadCount && !navigation.collapsed" class="notification-count">{{ unreadCount }}</span>
         </RouterLink>
         <button class="profile-row" :title="auth.account?.displayName || ''" @click="profileOpen = !profileOpen">
           <span class="avatar">{{ initials }}</span>
-          <span v-if="!navigation.collapsed" class="profile-copy"><strong>{{ auth.account?.displayName }}</strong><small>{{ auth.account?.email }}</small></span>
+          <span class="profile-copy" :class="{ 'profile-copy-hidden': navigation.collapsed }"><strong>{{ auth.account?.displayName }}</strong><small>{{ auth.account?.email }}</small></span>
         </button>
         <div v-if="profileOpen" class="profile-menu">
           <div class="profile-menu-name">{{ auth.account?.displayName }}</div>
           <button @click="handleLogout">Đăng xuất</button>
         </div>
-        <button class="collapse-control" :title="navigation.collapsed ? 'Mở rộng menu' : 'Thu gọn menu'" @click="navigation.toggleCollapsed()">
-          <span>{{ navigation.collapsed ? '→' : '←' }}</span><span v-if="!navigation.collapsed">Thu gọn menu</span>
+        <button class="collapse-control" :title="navigation.collapsed ? 'Mở rộng menu' : 'Thu gọn menu'" :aria-expanded="!navigation.collapsed" @click="navigation.toggleCollapsed()">
+          <span class="collapse-icon">{{ navigation.collapsed ? '→' : '←' }}</span><span class="sidebar-label" :class="{ 'sidebar-label-hidden': navigation.collapsed }">{{ navigation.collapsed ? 'Mở rộng menu' : 'Thu gọn menu' }}</span>
         </button>
       </div>
     </aside>
