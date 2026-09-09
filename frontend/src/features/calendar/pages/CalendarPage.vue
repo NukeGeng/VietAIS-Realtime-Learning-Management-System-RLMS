@@ -1,0 +1,10 @@
+<template>
+  <div><PageHeader eyebrow="SCHEDULE" title="Lịch học" description="Lịch cá nhân được lấy theo tổ chức và quyền của tài khoản hiện tại." /><div v-if="error" class="error-banner"><span>{{ error }}</span><button class="mini-button" @click="load">Thử lại</button></div><section class="panel"><div class="panel-heading"><h2>Agenda</h2><span>{{ sorted.length }} lịch</span></div><div v-if="loading" class="loading-state">Đang tải lịch…</div><div v-else-if="sorted.length" class="list-compact"><div v-for="item in sorted" :key="item.id" class="list-compact-item"><div><strong>{{ className(item.learningClassId) }}</strong><span>{{ formatDateTime(item.startsAt) }} – {{ formatDateTime(item.endsAt) }}</span></div><StatusPill :value="item.status" /></div></div><div v-else class="empty-state"><strong>Chưa có lịch học</strong><span>Các buổi học sắp tới sẽ xuất hiện ở đây.</span></div></section></div>
+</template>
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import PageHeader from '../../../shared/ui/PageHeader.vue'; import StatusPill from '../../../shared/ui/StatusPill.vue'; import { academicsApi } from '../../../shared/api/client'; import { formatDateTime, type LearningClass, type Schedule } from '../../../shared/types'
+const schedules = ref<Schedule[]>([]); const classes = ref<LearningClass[]>([]); const loading = ref(true); const error = ref(''); const sorted = computed(() => schedules.value.slice().sort((a,b) => +new Date(a.startsAt)-+new Date(b.startsAt))); const names = computed(() => new Map(classes.value.map(item => [item.id, `${item.code} · ${item.name}`]))); function className(id: string) { return names.value.get(id) || 'Lớp học' }
+async function load() { loading.value = true; const result = await Promise.allSettled([academicsApi.mySchedules(), academicsApi.classes()]); if (result[0].status === 'fulfilled') schedules.value = result[0].value; if (result[1].status === 'fulfilled') classes.value = result[1].value; if (result[0].status === 'rejected') error.value = 'Không tải được lịch học.'; loading.value = false }
+onMounted(load)
+</script>

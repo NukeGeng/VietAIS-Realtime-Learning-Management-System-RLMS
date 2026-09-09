@@ -15,8 +15,10 @@ realtime Class Overview + on-demand Student Detail, grading/gradebook, learning
 progress/resources, essay topic/group/report validation, signed file access và các
 read model báo cáo cơ bản.
 
-Repository hiện là backend/API và không chứa frontend web hoàn chỉnh. Media payload
-đi qua SFU bên ngoài; AI essay review/RAG, payment, certificate và full
+Frontend web đã có trong `frontend/`, dùng Vue 3, Vite, Pinia, Vue Router và SignalR.
+Các workspace Student/Teacher/Admin, opened tabs, live classroom, activity
+autosave, overview/detail on-demand, essay validation flow và gradebook đều gọi
+API tenant-scoped hiện tại. Media payload đi qua SFU bên ngoài; AI essay review/RAG, payment, certificate và full
 microservices migration vẫn nằm ngoài scope GOAL.
 
 ## Chạy local
@@ -30,6 +32,19 @@ bash scripts/build.sh
 bash scripts/test.sh
 dotnet run --project backend/src/Api --launch-profile https
 ```
+
+Chạy frontend ở terminal khác khi API đang lắng nghe tại `http://localhost:5164`:
+
+```bash
+cd frontend
+npm install
+npm run typecheck
+npm run dev
+```
+
+Vite proxy các request `/api` và `/hubs` tới API local. Có thể đặt
+`VITE_DEV_API_TARGET` hoặc `VITE_API_BASE_URL` trong file `.env.local` khi chạy
+frontend ở môi trường khác.
 
 Kiểm thử workload realtime riêng chạy trên test host và mặc định dùng 16 sinh viên:
 
