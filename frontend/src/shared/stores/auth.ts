@@ -3,15 +3,7 @@ import { defineStore } from 'pinia'
 import { identityApi } from '../api/client'
 import { isUnauthorized, errorMessage } from '../api/http'
 import type { Account, Role } from '../types'
-
-const P = {
-  manageOrganizations: 'identity.organizations.manage',
-  manageUsers: 'identity.users.manage',
-  manageCourses: 'academics.courses.manage',
-  manageClasses: 'academics.classes.manage',
-  submitAssessment: 'assessment.activities.submit',
-  readReports: 'reporting.classes.read'
-} as const
+import { permissions as P } from '../permissions'
 
 export const useAuthStore = defineStore('auth', () => {
   const account = ref<Account | null>(null)

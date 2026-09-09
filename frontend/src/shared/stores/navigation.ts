@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { Role } from '../types'
+import { permissions as P, type Permission } from '../permissions'
 
 export interface OpenedTab {
   key: string
@@ -15,59 +16,69 @@ export interface NavItem {
   route?: string
   icon: string
   children?: NavItem[]
-  permissions?: string[]
+  permissions?: Permission[]
 }
 
 const menus: Record<Role, NavItem[]> = {
   student: [
     { key: 'dashboard', label: 'Trang chủ', route: '/dashboard', icon: '⌂' },
     { key: 'learning', label: 'Học tập', icon: '◈', children: [
-      { key: 'classes', label: 'Khóa học / Lớp học', route: '/classes', icon: '▦' },
-      { key: 'calendar', label: 'Lịch học', route: '/calendar', icon: '◷' },
-      { key: 'progress', label: 'Tiến độ', route: '/progress', icon: '↗' }
+      { key: 'classes', label: 'Khóa học / Lớp học', route: '/classes', icon: '▦', permissions: [P.readClasses] },
+      { key: 'calendar', label: 'Lịch học', route: '/calendar', icon: '◷', permissions: [P.readScheduling] },
+      { key: 'progress', label: 'Tiến độ', route: '/progress', icon: '↗', permissions: [P.readLearningProgress] }
     ]},
     { key: 'assessment', label: 'Đánh giá', icon: '✓', children: [
-      { key: 'activities', label: 'Bài tập & Bài thi', route: '/activities', icon: '▤' },
-      { key: 'essays', label: 'Tiểu luận', route: '/essays', icon: '✎' },
-      { key: 'grades', label: 'Điểm số', route: '/gradebook', icon: '◒' }
+      { key: 'activities', label: 'Bài tập & Bài thi', route: '/activities', icon: '▤', permissions: [P.submitAssessmentActivities, P.manageAssessmentActivities] },
+      { key: 'essays', label: 'Tiểu luận', route: '/essays', icon: '✎', permissions: [P.submitAssessmentActivities, P.manageEssayAssignments] },
+      { key: 'grades', label: 'Điểm số', route: '/gradebook', icon: '◒', permissions: [P.readAssessmentResults, P.manageGradebook] }
     ]},
-    { key: 'notifications', label: 'Thông báo', route: '/notifications', icon: '♢' }
+    { key: 'notifications', label: 'Thông báo', route: '/notifications', icon: '♢', permissions: [P.readNotifications] }
   ],
   teacher: [
     { key: 'dashboard', label: 'Tổng quan', route: '/dashboard', icon: '⌂' },
     { key: 'teaching', label: 'Giảng dạy', icon: '◈', children: [
-      { key: 'classes', label: 'Lớp giảng dạy', route: '/classes', icon: '▦' },
-      { key: 'courses', label: 'Khóa học', route: '/courses', icon: '▱' },
-      { key: 'calendar', label: 'Lịch giảng', route: '/calendar', icon: '◷' }
+      { key: 'classes', label: 'Lớp giảng dạy', route: '/classes', icon: '▦', permissions: [P.readClasses] },
+      { key: 'courses', label: 'Khóa học', route: '/courses', icon: '▱', permissions: [P.manageCourses] },
+      { key: 'calendar', label: 'Lịch giảng', route: '/calendar', icon: '◷', permissions: [P.readScheduling] }
     ]},
     { key: 'assessment', label: 'Đánh giá', icon: '✓', children: [
-      { key: 'activities', label: 'Bài tập & Bài thi', route: '/activities', icon: '▤' },
-      { key: 'question-bank', label: 'Ngân hàng câu hỏi', route: '/question-bank', icon: '⌘' },
-      { key: 'essays', label: 'Tiểu luận', route: '/essays', icon: '✎' },
-      { key: 'grading', label: 'Chấm bài', route: '/grading', icon: '☑' },
-      { key: 'gradebook', label: 'Sổ điểm', route: '/gradebook', icon: '◒' }
+      { key: 'activities', label: 'Bài tập & Bài thi', route: '/activities', icon: '▤', permissions: [P.submitAssessmentActivities, P.manageAssessmentActivities] },
+      { key: 'question-bank', label: 'Ngân hàng câu hỏi', route: '/question-bank', icon: '⌘', permissions: [P.manageAssessmentActivities] },
+      { key: 'essays', label: 'Tiểu luận', route: '/essays', icon: '✎', permissions: [P.submitAssessmentActivities, P.manageEssayAssignments] },
+      { key: 'grading', label: 'Chấm bài', route: '/grading', icon: '☑', permissions: [P.gradeAssessmentSubmissions, P.manageGradebook] },
+      { key: 'gradebook', label: 'Sổ điểm', route: '/gradebook', icon: '◒', permissions: [P.readAssessmentResults, P.manageGradebook] }
     ]},
     { key: 'tracking', label: 'Theo dõi', icon: '⌁', children: [
-      { key: 'progress', label: 'Tiến độ lớp', route: '/progress', icon: '↗' },
-      { key: 'reports', label: 'Báo cáo', route: '/reports', icon: '▥' }
+      { key: 'progress', label: 'Tiến độ lớp', route: '/progress', icon: '↗', permissions: [P.readLearningProgress] },
+      { key: 'reports', label: 'Báo cáo', route: '/reports', icon: '▥', permissions: [P.readReports] }
     ]},
-    { key: 'notifications', label: 'Thông báo', route: '/notifications', icon: '♢' }
+    { key: 'notifications', label: 'Thông báo', route: '/notifications', icon: '♢', permissions: [P.readNotifications] }
   ],
   admin: [
     { key: 'dashboard', label: 'Tổng quan', route: '/dashboard', icon: '⌂' },
     { key: 'system', label: 'Hệ thống', icon: '⚙', children: [
-      { key: 'organization', label: 'Tổ chức', route: '/admin/organization', icon: '◇' },
-      { key: 'users', label: 'Người dùng', route: '/admin/users', icon: '♙' },
-      { key: 'roles', label: 'Vai trò & Quyền', route: '/admin/roles', icon: '⌑' }
+      { key: 'organization', label: 'Tổ chức', route: '/admin/organization', icon: '◇', permissions: [P.manageOrganizations] },
+      { key: 'users', label: 'Người dùng', route: '/admin/users', icon: '♙', permissions: [P.manageUsers] },
+      { key: 'roles', label: 'Vai trò & Quyền', route: '/admin/roles', icon: '⌑', permissions: [P.manageRoles] }
     ]},
     { key: 'academics', label: 'Học vụ', icon: '◈', children: [
-      { key: 'courses', label: 'Khóa học', route: '/courses', icon: '▱' },
-      { key: 'classes', label: 'Lớp học', route: '/classes', icon: '▦' },
-      { key: 'calendar', label: 'Lịch', route: '/calendar', icon: '◷' }
+      { key: 'courses', label: 'Khóa học', route: '/courses', icon: '▱', permissions: [P.manageCourses] },
+      { key: 'classes', label: 'Lớp học', route: '/classes', icon: '▦', permissions: [P.readClasses] },
+      { key: 'calendar', label: 'Lịch', route: '/calendar', icon: '◷', permissions: [P.readScheduling] }
+    ]},
+    { key: 'assessment', label: 'Đánh giá', icon: '✓', children: [
+      { key: 'activities', label: 'Bài tập & Bài thi', route: '/activities', icon: '▤', permissions: [P.submitAssessmentActivities, P.manageAssessmentActivities] },
+      { key: 'question-bank', label: 'Ngân hàng câu hỏi', route: '/question-bank', icon: '⌘', permissions: [P.manageAssessmentActivities] },
+      { key: 'essays', label: 'Tiểu luận', route: '/essays', icon: '✎', permissions: [P.submitAssessmentActivities, P.manageEssayAssignments] },
+      { key: 'grading', label: 'Chấm bài', route: '/grading', icon: '☑', permissions: [P.gradeAssessmentSubmissions, P.manageGradebook] },
+      { key: 'gradebook', label: 'Sổ điểm', route: '/gradebook', icon: '◒', permissions: [P.readAssessmentResults, P.manageGradebook] }
+    ]},
+    { key: 'tracking', label: 'Theo dõi', icon: '⌁', children: [
+      { key: 'progress', label: 'Tiến độ', route: '/progress', icon: '↗', permissions: [P.readLearningProgress] },
+      { key: 'reports', label: 'Báo cáo', route: '/reports', icon: '▥', permissions: [P.readReports] }
     ]},
     { key: 'operations', label: 'Vận hành', icon: '⌁', children: [
-      { key: 'reports', label: 'Báo cáo', route: '/reports', icon: '▥' },
-      { key: 'notifications', label: 'Thông báo', route: '/notifications', icon: '♢' }
+      { key: 'notifications', label: 'Thông báo', route: '/notifications', icon: '♢', permissions: [P.readNotifications] }
     ]}
   ]
 }
@@ -79,7 +90,9 @@ export const useNavigationStore = defineStore('navigation', () => {
 
   const activeTab = computed(() => openedTabs.value.find(tab => tab.route === activeRoute.value) ?? openedTabs.value[0])
 
-  function menuFor(role: Role) { return menus[role] }
+  function menuFor(role: Role, availablePermissions: ReadonlySet<string>) {
+    return filterVisibleItems(menus[role], availablePermissions)
+  }
 
   function addTab(tab: OpenedTab) {
     const existing = openedTabs.value.find(item => item.key === tab.key || item.route === tab.route)
@@ -118,3 +131,20 @@ export const useNavigationStore = defineStore('navigation', () => {
 
   return { collapsed, openedTabs, activeRoute, activeTab, menuFor, addTab, activate, renameTab, closeTab, closeOthers, toggleCollapsed }
 })
+
+function filterVisibleItems(items: NavItem[], availablePermissions: ReadonlySet<string>): NavItem[] {
+  return items.reduce<NavItem[]>((visible, item) => {
+    if (item.route) {
+      if (hasPermission(item, availablePermissions)) visible.push(item)
+      return visible
+    }
+
+    const children = item.children ? filterVisibleItems(item.children, availablePermissions) : []
+    if (children.length > 0) visible.push({ ...item, children })
+    return visible
+  }, [])
+}
+
+function hasPermission(item: NavItem, availablePermissions: ReadonlySet<string>) {
+  return !item.permissions?.length || item.permissions.some(permission => availablePermissions.has(permission))
+}

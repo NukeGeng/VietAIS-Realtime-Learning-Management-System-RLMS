@@ -88,7 +88,7 @@ const organizationName = ref('Đang tải tổ chức')
 const unreadCount = ref(0)
 
 const roleLabel = computed(() => auth.role === 'admin' ? 'Admin Workspace' : auth.role === 'teacher' ? 'Teacher Workspace' : 'Student Workspace')
-const items = computed(() => navigation.menuFor(auth.role))
+const items = computed(() => navigation.menuFor(auth.role, auth.permissions))
 const currentTitle = computed(() => navigation.activeTab?.title || String(route.meta.title || 'Tổng quan'))
 const initials = computed(() => (auth.account?.displayName || 'RL').split(/\s+/).slice(-2).map(part => part[0]).join('').toUpperCase())
 
