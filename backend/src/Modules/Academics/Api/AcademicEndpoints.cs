@@ -509,10 +509,15 @@ public static class AcademicEndpoints
             var now = DateTimeOffset.UtcNow;
             var curriculum = new Curriculum
             {
-                Id = Guid.NewGuid(), OrganizationId = actor.OrganizationId,
-                CourseId = courseId, Title = title, Description = description,
-                Status = AcademicContentStatus.Draft, CreatedBy = actor.UserId,
-                CreatedAt = now, UpdatedAt = now
+                Id = Guid.NewGuid(),
+                OrganizationId = actor.OrganizationId,
+                CourseId = courseId,
+                Title = title,
+                Description = description,
+                Status = AcademicContentStatus.Draft,
+                CreatedBy = actor.UserId,
+                CreatedAt = now,
+                UpdatedAt = now
             };
             session.Insert(curriculum);
             await session.SaveChangesAsync(cancellationToken);

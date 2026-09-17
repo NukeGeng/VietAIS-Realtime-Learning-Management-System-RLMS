@@ -703,10 +703,14 @@ public static class ClassEndpoints
         {
             existing = new ClassCurriculumAssignment
             {
-                Id = Guid.NewGuid(), OrganizationId = learningClass.OrganizationId,
-                LearningClassId = classId, CurriculumId = curriculum.Id, Order = order,
+                Id = Guid.NewGuid(),
+                OrganizationId = learningClass.OrganizationId,
+                LearningClassId = classId,
+                CurriculumId = curriculum.Id,
+                Order = order,
                 Status = ClassCurriculumAssignmentStatus.Active,
-                CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
             };
             session.Insert(existing);
         }
