@@ -1,11 +1,5 @@
 <template>
   <div>
-    <PageHeader
-      eyebrow="SCHEDULE"
-      :title="pageTitle"
-      description="Theo dõi các buổi học và lịch giảng theo từng tuần trong tổ chức của bạn."
-    />
-
     <div v-if="error" class="error-banner">
       <span>{{ error }}</span>
       <button class="mini-button" @click="load">Thử lại</button>
@@ -115,7 +109,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../../../shared/stores/auth'
 import { academicsApi } from '../../../shared/api/client'
-import PageHeader from '../../../shared/ui/PageHeader.vue'
 import { type LearningClass, type Schedule } from '../../../shared/types'
 
 type CalendarFilter = 'all' | 'lesson' | 'exam'
@@ -135,7 +128,6 @@ const error = ref('')
 const viewFilter = ref<CalendarFilter>('all')
 const weekAnchor = ref(new Date())
 
-const pageTitle = computed(() => auth.role === 'teacher' ? 'Lịch giảng' : 'Lịch học')
 const filterOptions: { value: CalendarFilter; label: string }[] = [
   { value: 'all', label: 'Tất cả' },
   { value: 'lesson', label: 'Lịch học' },

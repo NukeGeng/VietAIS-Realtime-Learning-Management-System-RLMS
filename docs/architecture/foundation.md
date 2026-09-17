@@ -126,9 +126,13 @@ question-version snapshots, event-sourced attempts, grading/gradebook, progress,
 resources, essay validation, notifications and read-model reports. No test
 authentication bypass is exposed by the application.
 
-The repository deliberately stops at the backend/API boundary. WebRTC media is an
-external SFU concern, and AI essay review/RAG, payment, certificates and full
-microservices migration remain outside the current GOAL.
+The backend remains the business/API boundary for media: it authorizes the live
+session and relays only signaling metadata. The current frontend uses a direct
+WebRTC peer adapter so local sessions work without another service; audio/video
+never travels through the Business API. Deployments can replace that adapter with
+the configured external SFU boundary (`Media:ServerUrl` and its scoped token).
+AI essay review/RAG, payment, certificates and full microservices migration remain
+outside the current GOAL.
 
 ## Phase 3 learning activity
 

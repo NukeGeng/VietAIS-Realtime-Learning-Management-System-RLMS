@@ -14,6 +14,10 @@ public static class LearningConstants
     public static Guid LessonProgressId(Guid lessonId, Guid learningClassId, Guid studentId) =>
         StableId($"lesson-progress:{lessonId:D}:{learningClassId:D}:{studentId:D}");
 
+    public static Guid CurriculumLessonProgressId(Guid curriculumId, Guid lessonId,
+        Guid learningClassId, Guid studentId) =>
+        StableId($"curriculum-lesson-progress:{curriculumId:D}:{lessonId:D}:{learningClassId:D}:{studentId:D}");
+
     private static Guid StableId(string value)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));

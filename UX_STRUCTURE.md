@@ -29,7 +29,7 @@ Nguyên tắc:
 - Teacher ưu tiên: dạy lớp nào, lớp đang làm gì, ai cần hỗ trợ, bài nào cần chấm.
 - Admin ưu tiên: người dùng, tổ chức, phân quyền, cấu hình và tình trạng vận hành.
 - Live Classroom có layout riêng, không ép vào layout dashboard thông thường.
-- Realtime Overview và Student Detail là hai trải nghiệm khác nhau.
+- Realtime Overview và Student Observation là hai trải nghiệm khác nhau.
 - UI không được tải dữ liệu chỉ vì backend có sẵn nếu người dùng chưa sử dụng dữ liệu đó.
 
 ---
@@ -146,14 +146,18 @@ Click vào lớp:
 ```text
 LearningClass Detail
 ├── Tổng quan
-├── Nội dung
-├── Lịch học
-├── Bài tập
-├── Bài thi
+├── Nội dung khóa học
+├── Tài nguyên
 ├── Tiểu luận
-├── Điểm
-└── Tài nguyên
+└── Live Classroom
 ```
+
+Student Course Content dùng route `/classes/:classId/content` trong context lớp đã
+chọn. Màn hình hiển thị Course title, tiến độ tổng, rồi các CourseModule đã publish
+dưới dạng accordion. Mỗi module chỉ tải lesson summary (title, order, status);
+lesson detail và tài nguyên lesson được tải khi sinh viên mở bài. Trạng thái tối
+thiểu là Chưa bắt đầu, Đang học và Đã hoàn thành. Nút `Về lớp học` quay lại
+`/classes/:classId`; route `/courses/:courseId` vẫn là teacher management route.
 
 ---
 
@@ -311,9 +315,63 @@ Overview chỉ hiển thị metadata:
 
 **Không chứa full answer.**
 
+## 6.2. Participants, attendance và moderation
+
+Teacher mở bảng **Người tham gia** để xem danh sách người đang online theo tên.
+Bảng **Điểm danh** hiển thị ngưỡng đi trễ của phiên, tổng thời gian học, số lần
+vào lại và lịch sử từng đoạn vào/rời. Với một lần reconnect, mỗi đoạn giữ giờ
+vào, giờ rời, thời lượng học và khoảng gián đoạn trước lần vào tiếp theo.
+
+Trong đúng phiên live hiện tại, teacher có thể:
+
+- tắt/mở mic của một student;
+- đưa student ra khỏi phiên (kick);
+- chặn student vào lại phiên (block/unblock).
+
+Các điều khiển này là state theo `LiveSession`, không thay đổi quyền tham gia
+hoặc mic của student ở những phiên khác.
+
+Teacher có thêm trang **Điểm danh** trong nhóm Theo dõi lớp học. Bộ lọc đi theo thứ tự
+lớp học → ngày học → buổi học cụ thể trong ngày, để một lớp có nhiều buổi
+trong học kỳ vẫn được đối chiếu riêng. Bảng hiển thị mã học viên, trạng thái, thời điểm vào lần
+đầu, số phút đi trễ sau ngưỡng, tổng thời gian học, số lần reconnect, thời điểm
+rời cuối và từng đoạn vào/rời. Bảng có thể xuất thành file Excel dạng hàng/cột
+để lưu trữ hoặc xử lý tiếp.
+Tên ngày và buổi dùng nhãn dễ đọc theo ngữ cảnh, chẳng hạn
+`Lớp mẫu — Thứ 4 · 09/09/2026 · Buổi sáng`; định danh UUID chỉ dùng trong
+liên kết và lời gọi API, không xuất hiện trong nhãn giao diện.
+Ngày và khung giờ của buổi được lấy từ `ClassSchedule.startsAt/endsAt` (lịch
+giảng/lịch học). Thời điểm live thực tế chỉ dùng cho trạng thái phiên và lịch
+sử điểm danh, nên việc vào sớm, vào trễ hoặc kết thúc phiên không làm đổi ngày
+của buổi học trên lịch.
+Danh sách buổi gồm cả lịch chưa tạo phiên live; khi chọn, hiển thị trạng thái
+chưa có phiên và không tải/xuất điểm danh. Phiên không liên kết lịch được giữ
+riêng, không tự ghép vào một buổi sáng/chiều chỉ vì cùng lớp.
+
+## 6.2.1. Media grid và quyền trình bày
+
+Vùng media vừa viewport, tự chọn số hàng/cột và kích thước ô theo số người và
+kích thước cửa sổ. Desktop hiển thị tối đa 12 người mỗi trang, mobile tối đa 6.
+Hàng cuối được căn giữa. Các ô chuyển vị trí/kích thước mềm khi người vào/rời;
+tôn trọng prefers-reduced-motion. Cụm điều khiển chỉ xuất hiện sau khi phiên đã
+bắt đầu và người dùng join thành công; khi phiên còn scheduled/ended thì không
+render cụm này. Khi hiển thị, cụm điều khiển cố định phía dưới, có vùng chừa
+riêng, trạng thái bật nền trắng/chữ đen. Chat/participants nổi trên controls.
+
+Khi trình bày, màn hình dùng khoảng 73% chiều rộng; camera/avatar người trình bày
+được ghim bên phải ở mọi trang. Khung trình bày bám tỷ lệ video; nếu còn đủ chiều cao bên dưới thì xếp các ô người dùng vào vùng đó để giảm khoảng đen. Dải chứa tối đa 6 người (mobile 3); màn
+hình dọc chuyển dải xuống dưới. Video trình bày giữ đủ nội dung (contain), nút
+fullscreen chỉ phóng video. Âm thanh không phụ thuộc trang ô đang xem.
+Một phiên chỉ có một người trình bày tại một thời điểm. Student phải chờ khi đang có presenter. Teacher có thể tiếp quản; trước khi
+thay presenter là student, hệ thống yêu cầu xác nhận và gửi sự kiện dừng trình bày
+cho presenter cũ.
+Nút `Về lớp học` chỉ rời live view trên thiết bị hiện tại và đưa người dùng về
+trang lớp; nó không đổi trạng thái phiên. Teacher dùng nút `Kết thúc phiên` khi
+muốn đóng phiên và đưa mọi client đang kết nối về trang lớp.
+
 ---
 
-## 6.2. Question Heatmap
+## 6.3. Question Heatmap
 
 Mục tiêu:
 > Teacher nhìn một phát biết cả lớp đang mắc ở đâu.
@@ -336,9 +394,14 @@ Heatmap không cần tải nội dung answer.
 
 ---
 
-# 7. Teacher Student Detail
+# 7. Teacher Student Observation
 
-Khi teacher click một sinh viên:
+Khi teacher click **Mở workspace** ở một sinh viên, app mở route riêng
+`/activities/{activityId}/attempts/{attemptId}`. Trang riêng này có đủ không gian
+cho bản xem workspace chỉ đọc; trang activity hiện tại chỉ giữ overview và các thao tác
+quản lý activity.
+
+Trong trang workspace riêng:
 
 ```text
 ┌──────────────────────────────────────────────────────┐
@@ -357,7 +420,18 @@ Khi teacher click một sinh viên:
 └─────────────┴────────────────────────────────────────┘
 ```
 
+Mặc định teacher bật **Following**. Khi student chuyển câu hoặc cập nhật đáp án,
+workspace quan sát chuyển theo detail delta. Teacher có thể chọn một câu khác để
+vào **Inspecting** mà không làm thay đổi câu hiện tại của student; nút **Theo dõi lại**
+đưa workspace về câu student đang mở.
+
 ## Realtime rule
+
+Trang quan sát dùng cùng component **StudentAttemptWorkspace** với trang làm bài:
+student dùng mode `interactive`, teacher dùng mode `observer`. Observer là chỉ đọc,
+giữ nguyên danh sách câu hỏi, câu hiện tại, lựa chọn và tiến độ, đồng thời cập nhật
+từ detail delta để teacher quan sát trực tiếp student đang thao tác mà không thể sửa
+câu trả lời.
 
 ```text
 Open Student A
@@ -426,6 +500,27 @@ Trong GOAL hiện tại:
 ---
 
 # 9. Teacher Essay Workspace
+
+## Class-first entry
+
+Các tính năng teacher cần một `LearningClass` (gồm Tiểu luận, Chấm bài,
+Sổ điểm, Bài tập/Bài thi và Báo cáo) bắt đầu bằng một bộ chọn lớp dùng chung:
+
+```text
+Tìm lớp học [Search classes by name or code]
+
+┌──────────────┐  ┌──────────────┐
+│ SE01         │  │ SE02         │
+│ C# Backend   │  │ Database     │
+│ 42 sinh viên │  │ 35 sinh viên │
+└──────────────┘  └──────────────┘
+```
+
+Tìm kiếm lọc trực tiếp các thẻ lớp. Teacher nhấn vào một thẻ để mở workspace
+theo lớp; không dùng dropdown làm điểm vào chính và không hiển thị hành động
+tạo trước khi lớp được chọn. Workspace phải hiển thị rõ lớp hiện tại cùng thao
+tác `Đổi lớp`/`Quay lại danh sách lớp`. Tên lớp không lặp lại trong từng thẻ
+bài khi đã có trong header workspace.
 
 ## Topic management
 
@@ -568,7 +663,7 @@ Hiển thị:
 - Saved
 - Save failed / Retry
 
-## Student Detail
+## Student Observation
 Khi switch nhanh A -> B:
 - cancel/ignore stale response A;
 - không để payload A ghi đè màn hình B.
@@ -671,6 +766,7 @@ StudentClassView
 TeacherClassView
 ClassOverviewView
 StudentAttemptDetailView
+StudentCurriculumContentView
 GradebookView
 StudentLearningProgressView
 EssayGroupStatusView
@@ -678,6 +774,24 @@ EssaySubmissionValidationView
 ```
 
 Không dùng Event Stream trực tiếp để render UI.
+
+---
+
+# 17.1. Student LearningClass Content
+
+Nội dung khóa học là một tab bên trong workspace `LearningClass`, không tự mở
+module/lesson workspace. Tab này hiển thị các curriculum được gán dưới dạng
+thẻ chọn:
+
+```text
+/classes/:classId/content
+  → Curriculum cards
+  → /classes/:classId/curriculums/:curriculumId
+  → Module → Lesson
+```
+
+Chỉ route curriculum mới được mở application tab riêng. Tiến độ được tính
+theo Student + LearningClass + Curriculum.
 
 ---
 
@@ -707,7 +821,7 @@ Login
 → Start LiveSession
 → Publish Activity
 → Watch Class Overview
-→ Open Student Detail khi cần
+→ Mở workspace quan sát sinh viên khi cần
 → Help/Intervene
 → End Session
 → Grade Submissions

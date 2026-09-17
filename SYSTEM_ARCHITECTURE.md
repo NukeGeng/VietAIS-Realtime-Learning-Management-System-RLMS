@@ -403,9 +403,17 @@ attendance commit, handler mới phát tín hiệu refresh cho reporting để s
 các student bị ảnh hưởng không đọc trước trạng thái điểm danh cuối phiên. Khi teacher
 điều chỉnh attendance, API lưu correction trước rồi enqueue refresh tenant-scoped cho
 class và student tương ứng; lỗi reporting không làm mất correction đã lưu.
+Mỗi lần rời rồi vào lại sẽ đóng segment hiện tại, mở segment mới và tăng
+`ReconnectCount`; ngưỡng đi muộn được lấy từ cấu hình `LateAfterMinutes` của chính
+`LiveSession`. Moderation lưu document theo phiên và người học, nên kick/block/mute
+không ảnh hưởng enrollment hay các phiên khác.
 Join được chấp nhận trước thời điểm kết thúc sẽ được chốt theo `EndedAt` dù message
 đến muộn; join phát sinh sau khi session đã kết thúc bị bỏ qua để không mở lại record
 `Present` trên một session đã đóng.
+Khi teacher kết thúc `LiveSession`, transaction kết thúc được commit trước rồi
+SignalR phát `session-ended` tới đúng tenant-scoped group; các client dừng media,
+đóng kết nối realtime và rời live route. Hub cũng từ chối mọi kết nối mới sau
+`EndedAt`.
 Thay đổi trọng số `GradeItem` cũng được lưu trước rồi enqueue refresh cho class và
 các student active để các report phản ánh cấu hình gradebook mới.
 Thay đổi enrollment, lifecycle của assessment/essay và accepted submission cũng phát
@@ -431,6 +439,11 @@ Session / Permission / Enrollment / Schedule
 
 MEDIA PLANE
 Video / Audio / Screen share
+
+Screen share của một `LiveSession` dùng lease ephemeral tenant-scoped trong Redis:
+chỉ một presenter được giữ lease, student bị từ chối khi đang có presenter và
+teacher có thể takeover sau khi xác nhận ở client. Track media vẫn đi qua WebRTC;
+SignalR chỉ phát sự kiện bắt đầu, thay thế và dừng trình bày.
 
 CLASS STATE PLANE
 Presence / Attendance / Progress Overview

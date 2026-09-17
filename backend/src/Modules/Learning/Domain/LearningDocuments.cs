@@ -53,6 +53,11 @@ public sealed class StudentLessonProgressRecord
     public Guid OrganizationId { get; set; }
     public Guid LearningClassId { get; set; }
     public Guid CourseId { get; set; }
+    /// <summary>
+    /// Nullable for compatibility with lesson progress written before
+    /// curriculum context was introduced.
+    /// </summary>
+    public Guid? CurriculumId { get; set; }
     public Guid LessonId { get; set; }
     public Guid StudentId { get; set; }
     public LessonProgressStatus Status { get; set; }

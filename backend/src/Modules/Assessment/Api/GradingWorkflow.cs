@@ -94,9 +94,11 @@ public static class GradePublicationPublisher
                 message.GradeEntryId);
         }
 
-        var notification = new NotificationRequested(Guid.NewGuid(), message.OrganizationId,
-            message.StudentId, "result-published", $"Result published: {message.ActivityTitle}",
-            $"Your result is {message.Score:0.##} / {message.MaxScore:0.##}.",
+        var notification = new NotificationRequested(
+            NotificationEventIds.Transition(message.GradeEntryId, "result-published",
+                message.PublishedAt), message.OrganizationId,
+            message.StudentId, "result-published", $"Đã công bố kết quả: {message.ActivityTitle}",
+            $"Kết quả của bạn: {message.Score:0.##} / {message.MaxScore:0.##}.",
             message.GradeEntryId, message.PublishedAt);
         try
         {

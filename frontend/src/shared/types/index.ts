@@ -52,7 +52,85 @@ export interface Lesson {
   status: string | number
 }
 
+export interface StudentCourseContent {
+  learningClassId: string
+  courseId: string
+  courseTitle: string
+  completedLessons: number
+  totalLessons: number
+  progress: number
+  modules: StudentCourseModule[]
+}
+
+export interface StudentCurriculumSummary {
+  curriculumId: string
+  courseId: string
+  title: string
+  description: string
+  moduleCount: number
+  lessonCount: number
+  completedLessons: number
+  progress: number
+}
+
+export interface StudentCurriculumList {
+  learningClassId: string
+  curriculums: StudentCurriculumSummary[]
+}
+
+export interface StudentCurriculumContent extends StudentCourseContent {
+  curriculumId: string
+  curriculumTitle: string
+  curriculumDescription: string
+}
+
+export interface StudentCourseModule {
+  moduleId: string
+  title: string
+  order: number
+  completedLessons: number
+  totalLessons: number
+  lessons: StudentLessonSummary[]
+}
+
+export interface StudentLessonSummary {
+  lessonId: string
+  title: string
+  order: number
+  status?: string | number | null
+}
+
+export interface StudentLessonDetail {
+  learningClassId: string
+  courseId: string
+  moduleId: string
+  moduleTitle: string
+  lessonId: string
+  title: string
+  order: number
+  contentSummary: string
+  status?: string | number | null
+  startedAt?: string
+  completedAt?: string
+  resources: StudentLessonResource[]
+}
+
+export interface StudentLessonResource {
+  id: string
+  title: string
+  description: string
+  type: string | number
+  externalUrl?: string
+  fileName?: string
+  contentType?: string
+  size: number
+  durationSeconds?: number
+  accessUrl?: string
+}
+
 export interface LearningClass {
+  courseName?: string
+  studentCount?: number
   id: string
   courseId: string
   code: string
@@ -85,6 +163,7 @@ export interface LiveSession {
   status: string | number
   startedAt?: string
   endedAt?: string
+  lateAfterMinutes: number
   mediaRoomId: string
 }
 
@@ -104,6 +183,14 @@ export interface AttendanceRecord {
   status: string | number
   adjustedBy?: string
   adjustmentReason?: string
+  reconnectCount: number
+  segments: AttendanceSegment[]
+}
+
+export interface AttendanceSegment {
+  joinedAt: string
+  leftAt?: string
+  duration: string
 }
 
 export interface AttendanceSummary {
@@ -114,6 +201,17 @@ export interface AttendanceSummary {
   excusedCount: number
   attendancePercentage: number
   records: AttendanceRecord[]
+}
+
+export interface LiveSessionModeration {
+  liveSessionId: string
+  studentId: string
+  isBlocked: boolean
+  isMuted: boolean
+  blockedAt?: string
+  mutedAt?: string
+  changedBy?: string
+  updatedAt: string
 }
 
 export interface ActivityQuestion {
@@ -174,12 +272,16 @@ export interface ExamPolicy {
 }
 
 export interface StudentActivity {
+  canInteract?: boolean
+  interactionMessage?: string
+  expiresAt?: string
   id: string
   studentId: string
   activityId: string
   learningClassId: string
   liveSessionId?: string
   currentQuestionId?: string
+  questionOrder: string[]
   status: string | number
   answers: Record<string, string>
   answeredCount: number
@@ -188,7 +290,6 @@ export interface StudentActivity {
   submittedAt?: string
   version: number
   attemptNumber: number
-  questionOrder: string[]
   helpRequested: boolean
   helpRequestedAt?: string
   helpAcknowledgedAt?: string
@@ -227,6 +328,7 @@ export interface StudentDetail {
   learningClassId: string
   liveSessionId?: string
   currentQuestionId?: string
+  questionOrder: string[]
   status: string | number
   answers: Record<string, string>
   answeredCount: number
@@ -392,7 +494,70 @@ export interface Notification {
 export function enumLabel(value: string | number | undefined, labels: string[] = []): string {
   if (typeof value === 'number') return labels[value] ?? String(value)
   if (!value) return '—'
-  return value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]/g, ' ')
+  const normalized = value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]/g, ' ')
+  const labelsVi: Record<string, string> = {
+    Active: 'Đang hoạt động',
+    Acknowledged: 'Đã tiếp nhận',
+    Approved: 'Đã duyệt',
+    Archived: 'Đã lưu trữ',
+    Assignment: 'Bài tập',
+    Attachment: 'Tệp đính kèm',
+    Cancelled: 'Đã hủy',
+    Canceled: 'Đã hủy',
+    Closed: 'Đã đóng',
+    Completed: 'Đã hoàn thành',
+    ChangesRequested: 'Đã yêu cầu chỉnh sửa',
+    Disabled: 'Đã vô hiệu hóa',
+    Expired: 'Đã hết hạn',
+    Failed: 'Thất bại',
+    Graded: 'Đã chấm',
+    HelpRequested: 'Đang cần hỗ trợ',
+    Current: 'Hiện tại',
+    Document: 'Tài liệu',
+    Draft: 'Bản nháp',
+    Dropped: 'Đã rời lớp',
+    Easy: 'Dễ',
+    Excused: 'Có phép',
+    Exercise: 'Bài luyện tập',
+    Exam: 'Bài thi',
+    Hard: 'Khó',
+    Idle: 'Không hoạt động',
+    Immutable: 'Không thể thay đổi',
+    InProgress: 'Đang thực hiện',
+    'In progress': 'Đang thực hiện',
+    Late: 'Đi trễ',
+    Medium: 'Trung bình',
+    MultipleChoice: 'Nhiều lựa chọn',
+    LongText: 'Tự luận',
+    NotStarted: 'Chưa bắt đầu',
+    'Not started': 'Chưa bắt đầu',
+    Open: 'Đang mở',
+    Paused: 'Tạm dừng',
+    Pending: 'Đang chờ',
+    Present: 'Có mặt',
+    Published: 'Đã phát hành',
+    Quiz: 'Bài trắc nghiệm',
+    Recording: 'Bản ghi',
+    Scheduled: 'Đã lên lịch',
+    SingleChoice: 'Một lựa chọn',
+    ShortText: 'Trả lời ngắn',
+    Slide: 'Trang trình chiếu',
+    Started: 'Đã bắt đầu',
+    Submitted: 'Đã nộp',
+    TrueFalse: 'Đúng / Sai',
+    Video: 'Video',
+    Vắng: 'Vắng',
+    Locked: 'Đã khóa',
+    Muted: 'Đã tắt tiếng',
+    NotAvailable: 'Chưa khả dụng',
+    Rejected: 'Đã từ chối',
+    Resolved: 'Đã xử lý',
+    Unmuted: 'Đã bật tiếng'
+  }
+  const direct = labelsVi[value] || labelsVi[normalized]
+  if (direct) return direct
+  const insensitive = Object.entries(labelsVi).find(([key]) => key.toLowerCase() === value.toLowerCase() || key.toLowerCase() === normalized.toLowerCase())
+  return insensitive?.[1] || normalized
 }
 
 export function formatDate(value?: string): string {

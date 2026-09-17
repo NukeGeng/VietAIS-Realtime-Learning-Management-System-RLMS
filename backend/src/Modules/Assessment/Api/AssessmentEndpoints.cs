@@ -758,11 +758,15 @@ public static class AssessmentEndpoints
     {
         try
         {
-            var due = activity.DueAt is { } dueAt ? $" It is due at {dueAt:u}." : "";
-            await messageBus.PublishAsync(new ClassNotificationRequested(Guid.NewGuid(),
+            var due = activity.DueAt is { } dueAt
+                ? $" Hạn nộp {dueAt:dd/MM/yyyy HH:mm}."
+                : "";
+            await messageBus.PublishAsync(new ClassNotificationRequested(
+                NotificationEventIds.Transition(activity.Id, "activity-published",
+                    activity.PublishedAt ?? DateTimeOffset.UtcNow),
                 activity.OrganizationId, activity.LearningClassId, "activity-published",
-                $"New activity: {activity.Title}",
-                $"A new {activity.Kind.ToString().ToLowerInvariant()} is available.{due}",
+                $"Hoạt động mới: {activity.Title}",
+                $"Một {ActivityKindLabel(activity.Kind)} mới đã được phát hành.{due}",
                 activity.Id, activity.PublishedAt ?? DateTimeOffset.UtcNow));
 
             if (activity.DueAt is { } deadline && deadline > DateTimeOffset.UtcNow)
@@ -773,10 +777,12 @@ public static class AssessmentEndpoints
                     reminderAt = DateTimeOffset.UtcNow;
                 }
 
-                await messageBus.ScheduleAsync(new ClassNotificationRequested(Guid.NewGuid(),
+                await messageBus.ScheduleAsync(new ClassNotificationRequested(
+                    NotificationEventIds.Transition(activity.Id, "activity-deadline-reminder",
+                        reminderAt),
                     activity.OrganizationId, activity.LearningClassId, "activity-deadline-reminder",
-                    $"Deadline soon: {activity.Title}",
-                    $"The activity deadline is {deadline:u}.", activity.Id, reminderAt), reminderAt);
+                    $"Sắp đến hạn: {activity.Title}",
+                    $"Hoạt động đến hạn lúc {deadline:dd/MM/yyyy HH:mm}.", activity.Id, reminderAt), reminderAt);
             }
         }
         catch (Exception exception)
@@ -785,6 +791,14 @@ public static class AssessmentEndpoints
                 "Unable to enqueue activity notification for {ActivityId}.", activity.Id);
         }
     }
+
+    private static string ActivityKindLabel(AssessmentActivityKind kind) => kind switch
+    {
+        AssessmentActivityKind.Exam => "bài thi",
+        AssessmentActivityKind.Quiz => "bài trắc nghiệm",
+        AssessmentActivityKind.Exercise => "bài luyện tập",
+        _ => "bài tập"
+    };
 
     private static Task<IResult> PauseActivityAsync(
         Guid activityId, HttpContext context, IDocumentSession session, IAcademicDirectory academics,
@@ -898,7 +912,7 @@ public static class AssessmentEndpoints
         if (latestAttempt is not null && latestAttempt.Status is
             (StudentActivityStatus.InProgress or StudentActivityStatus.Idle or StudentActivityStatus.Paused))
         {
-            return Results.Ok(StudentActivityResponse.From(latestAttempt));
+            return Results.Ok(StudentActivityResponse.From(latestAttempt, activity));
         }
 
         if (latestAttempt is not null && (!IsExamRetakeAllowed(activity, attemptNumber)))
@@ -912,7 +926,7 @@ public static class AssessmentEndpoints
         var stream = await session.Events.FetchForWriting<StudentActivity>(attemptId, cancellationToken);
         if (stream.Aggregate is not null)
         {
-            return Results.Ok(StudentActivityResponse.From(stream.Aggregate));
+            return Results.Ok(StudentActivityResponse.From(stream.Aggregate, activity));
         }
 
         var logger = loggerFactory.CreateLogger("LearningPlatform.Assessment.Api");
@@ -931,7 +945,7 @@ public static class AssessmentEndpoints
             new StudentActivityChanged(actor.OrganizationId, attemptId, activity.Id, actor.UserId,
                 activity.LearningClassId, ActivityChangeTypes.Started, null, null,
                 StudentActivityRealtimeState.From(nextState), now));
-        return Results.Ok(StudentActivityResponse.From(attempt!));
+        return Results.Ok(StudentActivityResponse.From(attempt!, activity));
     }
 
     private static async Task<IResult> GetAttemptAsync(
@@ -959,7 +973,7 @@ public static class AssessmentEndpoints
 
         var attempt = await FindLatestAttemptAsync(session, activityId, actor!.UserId,
             cancellationToken);
-        return attempt is null ? Results.NotFound() : Results.Ok(StudentActivityResponse.From(attempt));
+        return attempt is null ? Results.NotFound() : Results.Ok(StudentActivityResponse.From(attempt, activity));
     }
 
     private static async Task<IResult> OpenQuestionAsync(
@@ -1030,7 +1044,7 @@ public static class AssessmentEndpoints
             new StudentActivityChanged(actor.OrganizationId, attemptId, activity.Id, actor.UserId,
                 activity.LearningClassId, ActivityChangeTypes.QuestionOpened, questionId, null,
                 StudentActivityRealtimeState.From(nextState), now));
-        return Results.Ok(StudentActivityResponse.From(attempt!));
+        return Results.Ok(StudentActivityResponse.From(attempt!, activity));
     }
 
     private static async Task<IResult> SaveAnswerAsync(
@@ -1124,7 +1138,7 @@ public static class AssessmentEndpoints
                 activity.LearningClassId,
                 changed ? ActivityChangeTypes.AnswerChanged : ActivityChangeTypes.AnswerSubmitted,
                 questionId, answer, StudentActivityRealtimeState.From(nextState), now));
-        return Results.Ok(StudentActivityResponse.From(attempt!));
+        return Results.Ok(StudentActivityResponse.From(attempt!, activity));
     }
 
     private static async Task<IResult> SubmitAttemptAsync(
@@ -1377,7 +1391,7 @@ public static class AssessmentEndpoints
             new StudentActivityChanged(actor.OrganizationId, aggregate.Id, activity.Id, actor.UserId,
                 activity.LearningClassId, changeType, null, null,
                 StudentActivityRealtimeState.From(nextState), now));
-        return Results.Ok(StudentActivityResponse.From(nextState));
+        return Results.Ok(StudentActivityResponse.From(nextState, activity));
     }
 
     private static Task<IResult> AcknowledgeAttemptHelpAsync(Guid attemptId, HttpContext context,
@@ -1457,7 +1471,7 @@ public static class AssessmentEndpoints
             new StudentActivityChanged(actor!.OrganizationId, attemptId, activity.Id, aggregate.StudentId,
                 activity.LearningClassId, changeType, null, null,
                 StudentActivityRealtimeState.From(nextState), now));
-        return Results.Ok(StudentActivityResponse.From(nextState));
+        return Results.Ok(StudentActivityResponse.From(nextState, activity));
     }
 
     private static Task<HelpRequest?> FindActiveHelpRequestAsync(IDocumentSession session,
@@ -1624,6 +1638,7 @@ public static class AssessmentEndpoints
             LearningClassId = activity.LearningClassId,
             LiveSessionId = activity.LiveSessionId,
             CurrentQuestionId = activity.CurrentQuestionId,
+            QuestionOrder = activity.QuestionOrder.ToArray(),
             Status = activity.Status,
             Answers = new Dictionary<Guid, string>(activity.Answers),
             HelpRequested = activity.HelpRequested,
@@ -1790,12 +1805,47 @@ public sealed record StudentActivityResponse(Guid Id, Guid StudentId, Guid Activ
     Guid[] QuestionOrder, bool HelpRequested, DateTimeOffset? HelpRequestedAt,
     DateTimeOffset? HelpAcknowledgedAt)
 {
-    public static StudentActivityResponse From(StudentActivity activity) => new(activity.Id,
-        activity.StudentId, activity.ActivityId, activity.LearningClassId, activity.LiveSessionId,
-        activity.CurrentQuestionId, activity.Status, new Dictionary<Guid, string>(activity.Answers),
-        activity.AnsweredCount, activity.StartedAt, activity.LastActivityAt, activity.SubmittedAt,
-        activity.Version, activity.AttemptNumber, activity.QuestionOrder.ToArray(), activity.HelpRequested,
-        activity.HelpRequestedAt, activity.HelpAcknowledgedAt);
+    public bool CanInteract { get; init; }
+    public string? InteractionMessage { get; init; }
+    public DateTimeOffset? ExpiresAt { get; init; }
+
+    public static StudentActivityResponse From(StudentActivity activity, AssessmentActivity? definition = null)
+    {
+        var reason = definition is null ? null : InteractionBlockReason(activity, definition,
+            DateTimeOffset.UtcNow);
+        return new StudentActivityResponse(activity.Id, activity.StudentId, activity.ActivityId,
+            activity.LearningClassId, activity.LiveSessionId, activity.CurrentQuestionId,
+            activity.Status, new Dictionary<Guid, string>(activity.Answers), activity.AnsweredCount,
+            activity.StartedAt, activity.LastActivityAt, activity.SubmittedAt, activity.Version,
+            activity.AttemptNumber, activity.QuestionOrder.ToArray(), activity.HelpRequested,
+            activity.HelpRequestedAt, activity.HelpAcknowledgedAt)
+        {
+            CanInteract = definition is not null && reason is null,
+            InteractionMessage = reason,
+            ExpiresAt = definition is null ? null : Deadline(activity, definition)
+        };
+    }
+
+    public static DateTimeOffset? Deadline(StudentActivity attempt, AssessmentActivity definition)
+    {
+        var deadline = definition.TimeLimit is { } limit ? attempt.StartedAt + limit : (DateTimeOffset?)null;
+        return definition.DueAt is { } due && (deadline is null || due < deadline) ? due : deadline;
+    }
+
+    public static string? InteractionBlockReason(StudentActivity attempt, AssessmentActivity definition, DateTimeOffset now)
+    {
+        if (attempt.Status is StudentActivityStatus.Submitted or StudentActivityStatus.Closed)
+            return "Bài làm đã kết thúc.";
+        if (Deadline(attempt, definition) is { } deadline && now > deadline)
+            return "Đã hết thời gian làm bài. Bạn có thể xem lại câu trả lời đã lưu.";
+        if (definition.Status != AssessmentActivityStatus.Published)
+            return "Hoạt động đang tạm dừng hoặc đã đóng.";
+        if (definition.OpensAt is { } opens && now < opens)
+            return "Chưa đến giờ làm bài.";
+        if (attempt.Status != StudentActivityStatus.InProgress)
+            return "Bài làm đang tạm dừng. Nhấn Tiếp tục để làm bài.";
+        return null;
+    }
 }
 
 public sealed record SubmissionResponse(Guid Id, Guid ActivityId, Guid StudentId,
@@ -1830,7 +1880,7 @@ public sealed record ClassOverviewQuestionProgressResponse(Guid QuestionId, int 
 
 public sealed record StudentAttemptDetailResponse(Guid Id, Guid OrganizationId, Guid StudentId,
     int AttemptNumber, Guid ActivityId, Guid LearningClassId, Guid? LiveSessionId, Guid? CurrentQuestionId,
-    StudentActivityStatus Status, Dictionary<Guid, string> Answers, int AnsweredCount,
+    Guid[] QuestionOrder, StudentActivityStatus Status, Dictionary<Guid, string> Answers, int AnsweredCount,
     int TotalQuestions, decimal Progress, DateTimeOffset StartedAt, DateTimeOffset LastActivityAt,
     DateTimeOffset? SubmittedAt, long Version, bool HelpRequested = false,
     DateTimeOffset? HelpRequestedAt = null, DateTimeOffset? HelpAcknowledgedAt = null)
@@ -1838,7 +1888,7 @@ public sealed record StudentAttemptDetailResponse(Guid Id, Guid OrganizationId, 
     public static StudentAttemptDetailResponse From(StudentAttemptDetailView detail) => new(detail.Id,
         detail.OrganizationId, detail.StudentId, detail.AttemptNumber, detail.ActivityId,
         detail.LearningClassId,
-        detail.LiveSessionId, detail.CurrentQuestionId, detail.Status,
+        detail.LiveSessionId, detail.CurrentQuestionId, detail.QuestionOrder, detail.Status,
         new Dictionary<Guid, string>(detail.Answers), detail.AnsweredCount, detail.TotalQuestions,
         detail.Progress, detail.StartedAt, detail.LastActivityAt, detail.SubmittedAt, detail.Version,
         detail.HelpRequested, detail.HelpRequestedAt, detail.HelpAcknowledgedAt);

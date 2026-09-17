@@ -11,6 +11,9 @@ public static class ClassroomConstants
     public static Guid RaiseHandId(Guid liveSessionId, Guid studentId) =>
         DeterministicId("raise-hand", liveSessionId, studentId);
 
+    public static Guid ModerationId(Guid liveSessionId, Guid studentId) =>
+        DeterministicId("live-moderation", liveSessionId, studentId);
+
     private static Guid DeterministicId(string kind, Guid liveSessionId, Guid userId)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(

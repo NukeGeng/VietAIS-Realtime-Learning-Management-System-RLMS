@@ -61,7 +61,8 @@ public static class AnnouncementEndpoints
         }
 
         var query = session.Query<Announcement>()
-            .Where(announcement => announcement.LearningClassId == classId);
+            .Where(announcement => announcement.OrganizationId == actor.OrganizationId &&
+                announcement.LearningClassId == classId);
         if (!canManage)
         {
             query = query.Where(announcement => announcement.Status == AnnouncementStatus.Published);
@@ -136,7 +137,7 @@ public static class AnnouncementEndpoints
         }
 
         var announcement = await session.LoadAsync<Announcement>(announcementId, cancellationToken);
-        if (announcement is null)
+        if (announcement is null || announcement.OrganizationId != actor!.OrganizationId)
         {
             return Results.NotFound();
         }
@@ -181,7 +182,8 @@ public static class AnnouncementEndpoints
             return Results.NotFound();
         }
 
-        if (!await CanManageClassAsync(actor!, announcement.LearningClassId, academics,
+        if (announcement.OrganizationId != actor!.OrganizationId ||
+            !await CanManageClassAsync(actor, announcement.LearningClassId, academics,
                 cancellationToken))
         {
             return Results.Forbid();
@@ -234,16 +236,37 @@ public static class AnnouncementEndpoints
         }
 
         var query = session.Query<Notification>()
-            .Where(notification => notification.UserId == actor!.UserId);
-        if (unreadOnly == true)
-        {
-            query = query.Where(notification => notification.ReadAt == null);
-        }
-
+            .Where(notification => notification.OrganizationId == actor!.OrganizationId &&
+                notification.UserId == actor.UserId);
         var notifications = await query.OrderByDescending(notification => notification.CreatedAt)
-            .Take(100)
+            .Take(500)
             .ToListAsync(cancellationToken);
-        return Results.Ok(notifications.Select(NotificationResponse.From));
+
+        // Keep the read model resilient to legacy duplicate deliveries. New
+        // transitions are idempotent at write time; this also prevents old
+        // duplicate documents from resurfacing in the user's inbox.
+        var uniqueNotifications = notifications
+            .GroupBy(notification => new
+            {
+                notification.Type,
+                notification.SourceId,
+                Title = NotificationResponse.LocalizedTitleForGrouping(notification),
+                Body = NotificationResponse.LocalizedBodyForGrouping(notification),
+                // Source-backed schedule/announcement events can be replayed
+                // with a new delivery id. Source-less messages still need
+                // their occurrence timestamp to avoid collapsing separate
+                // notifications that happen to share the same text.
+                OccurredAt = notification.SourceId is null ? notification.CreatedAt : DateTimeOffset.MinValue
+            })
+            .Select(group => group
+                .OrderByDescending(notification => notification.ReadAt is null)
+                .ThenByDescending(notification => notification.CreatedAt)
+                .ThenBy(notification => notification.Id)
+                .First())
+            .Where(notification => unreadOnly != true || notification.ReadAt is null)
+            .OrderByDescending(notification => notification.CreatedAt)
+            .Take(100);
+        return Results.Ok(uniqueNotifications.Select(NotificationResponse.From));
     }
 
     private static async Task<IResult> MarkNotificationReadAsync(Guid notificationId,
@@ -255,7 +278,8 @@ public static class AnnouncementEndpoints
         }
 
         var notification = await session.LoadAsync<Notification>(notificationId, cancellationToken);
-        if (notification is null || notification.UserId != actor!.UserId)
+        if (notification is null || notification.OrganizationId != actor!.OrganizationId ||
+            notification.UserId != actor.UserId)
         {
             return Results.NotFound();
         }
@@ -294,6 +318,23 @@ public sealed record NotificationResponse(Guid Id, Guid UserId, string Type, str
     Guid? SourceId, DateTimeOffset? ReadAt, DateTimeOffset CreatedAt)
 {
     public static NotificationResponse From(Notification notification) => new(notification.Id,
-        notification.UserId, notification.Type, notification.Title, notification.Body,
+        notification.UserId, notification.Type, LocalizedTitle(notification), LocalizedBody(notification),
         notification.SourceId, notification.ReadAt, notification.CreatedAt);
+
+    internal static string LocalizedTitleForGrouping(Notification item) => LocalizedTitle(item);
+    internal static string LocalizedBodyForGrouping(Notification item) => LocalizedBody(item);
+
+    private static bool IsSchedule(Notification item) => item.Type.StartsWith("schedule-", StringComparison.Ordinal);
+    private static string LocalizedTitle(Notification item) => !IsSchedule(item) ? item.Title : item.Title switch
+    {
+        "New class session" => "Lịch học mới",
+        "Class session changed" => "Lịch học đã thay đổi",
+        "Class session cancelled" => "Lịch học đã hủy",
+        _ => item.Title
+    };
+    private static string LocalizedBody(Notification item) => !IsSchedule(item) ? item.Body : item.Body
+        .Replace("A new class session has been scheduled.", "Một buổi học mới đã được lên lịch.", StringComparison.Ordinal)
+        .Replace("A class session has been rescheduled.", "Buổi học đã được đổi lịch.", StringComparison.Ordinal)
+        .Replace("A class session has been cancelled.", "Buổi học đã được hủy.", StringComparison.Ordinal)
+        .Replace("Session:", "Thời gian (UTC):", StringComparison.Ordinal);
 }

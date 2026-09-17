@@ -8,6 +8,7 @@ public static class ClassroomModuleRegistration
     public static void AddClassroomModule(this IServiceCollection services)
     {
         services.AddSingleton<LivePresenceStore>();
+        services.AddSingleton<LivePresentationStore>();
         services.AddSingleton<LiveSessionSnapshotCache>();
     }
 }

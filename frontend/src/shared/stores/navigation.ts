@@ -19,6 +19,14 @@ export interface NavItem {
   permissions?: Permission[]
 }
 
+/** Class tabs are one application workspace even when a class-level sub-route changes. */
+export function applicationTabRoute(path: string) {
+  const observer = path.match(/^\/activities\/([^/?]+)\/attempts\/[^/?]+(?:\?.*)?$/)
+  if (observer) return `/activities/${observer[1]}`
+  const match = path.match(/^\/classes\/([^/]+)(?:\/(?:overview|content|resources|essays))?$/)
+  return match ? `/classes/${match[1]}` : path
+}
+
 const menus: Record<Role, NavItem[]> = {
   student: [
     { key: 'dashboard', label: 'Trang chủ', route: '/dashboard', icon: '⌂' },
@@ -48,9 +56,10 @@ const menus: Record<Role, NavItem[]> = {
       { key: 'grading', label: 'Chấm bài', route: '/grading', icon: '☑', permissions: [P.gradeAssessmentSubmissions, P.manageGradebook] },
       { key: 'gradebook', label: 'Sổ điểm', route: '/gradebook', icon: '◒', permissions: [P.readAssessmentResults, P.manageGradebook] }
     ]},
-    { key: 'tracking', label: 'Theo dõi', icon: '⌁', children: [
+    { key: 'tracking', label: 'Theo dõi lớp học', icon: '⌁', children: [
       { key: 'progress', label: 'Tiến độ lớp', route: '/progress', icon: '↗', permissions: [P.readLearningProgress] },
-      { key: 'reports', label: 'Báo cáo', route: '/reports', icon: '▥', permissions: [P.readReports] }
+      { key: 'reports', label: 'Báo cáo', route: '/reports', icon: '▥', permissions: [P.readReports] },
+      { key: 'attendance', label: 'Điểm danh', route: '/attendance', icon: '◷', permissions: [P.manageAttendance] }
     ]},
     { key: 'notifications', label: 'Thông báo', route: '/notifications', icon: '♢', permissions: [P.readNotifications] }
   ],
@@ -73,9 +82,10 @@ const menus: Record<Role, NavItem[]> = {
       { key: 'grading', label: 'Chấm bài', route: '/grading', icon: '☑', permissions: [P.gradeAssessmentSubmissions, P.manageGradebook] },
       { key: 'gradebook', label: 'Sổ điểm', route: '/gradebook', icon: '◒', permissions: [P.readAssessmentResults, P.manageGradebook] }
     ]},
-    { key: 'tracking', label: 'Theo dõi', icon: '⌁', children: [
+    { key: 'tracking', label: 'Theo dõi lớp học', icon: '⌁', children: [
       { key: 'progress', label: 'Tiến độ', route: '/progress', icon: '↗', permissions: [P.readLearningProgress] },
-      { key: 'reports', label: 'Báo cáo', route: '/reports', icon: '▥', permissions: [P.readReports] }
+      { key: 'reports', label: 'Báo cáo', route: '/reports', icon: '▥', permissions: [P.readReports] },
+      { key: 'attendance', label: 'Điểm danh', route: '/attendance', icon: '◷', permissions: [P.manageAttendance] }
     ]},
     { key: 'operations', label: 'Vận hành', icon: '⌁', children: [
       { key: 'notifications', label: 'Thông báo', route: '/notifications', icon: '♢', permissions: [P.readNotifications] }
@@ -105,10 +115,16 @@ export const useNavigationStore = defineStore('navigation', () => {
     return tab
   }
 
-  function activate(route: string) { activeRoute.value = route }
+  function activate(route: string) { activeRoute.value = applicationTabRoute(route) }
+
+  /** Clear object tabs when the authenticated identity changes. Routes remain the source of truth. */
+  function resetForSession() {
+    openedTabs.value = [{ key: 'dashboard', title: 'Tổng quan', route: '/dashboard', closable: false }]
+    activeRoute.value = '/dashboard'
+  }
 
   function renameTab(route: string, title: string) {
-    const tab = openedTabs.value.find(item => item.route === route)
+    const tab = openedTabs.value.find(item => item.route === applicationTabRoute(route))
     if (tab && title.trim()) tab.title = title.trim()
   }
 
@@ -129,7 +145,7 @@ export const useNavigationStore = defineStore('navigation', () => {
 
   function toggleCollapsed() { collapsed.value = !collapsed.value }
 
-  return { collapsed, openedTabs, activeRoute, activeTab, menuFor, addTab, activate, renameTab, closeTab, closeOthers, toggleCollapsed }
+  return { collapsed, openedTabs, activeRoute, activeTab, menuFor, addTab, activate, resetForSession, renameTab, closeTab, closeOthers, toggleCollapsed }
 })
 
 function filterVisibleItems(items: NavItem[], availablePermissions: ReadonlySet<string>): NavItem[] {

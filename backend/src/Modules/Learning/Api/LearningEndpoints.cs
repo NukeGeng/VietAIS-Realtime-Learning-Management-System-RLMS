@@ -28,6 +28,24 @@ public static class LearningEndpoints
         endpoints.MapGet("/api/learning/classes/{classId:guid}/course-progress/me",
                 GetMyCourseProgressAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ReadLearningProgress);
+        endpoints.MapGet("/api/learning/classes/{classId:guid}/course-content",
+                GetStudentCourseContentAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ReadLearningProgress);
+        endpoints.MapGet("/api/learning/classes/{classId:guid}/curriculums",
+                GetStudentCurriculumsAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ReadLearningProgress);
+        endpoints.MapGet("/api/learning/classes/{classId:guid}/curriculums/{curriculumId:guid}",
+                GetStudentCurriculumContentAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ReadLearningProgress);
+        endpoints.MapGet("/api/learning/classes/{classId:guid}/curriculums/{curriculumId:guid}/lessons/{lessonId:guid}",
+                GetStudentCurriculumLessonDetailAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ReadLearningProgress);
+        endpoints.MapPost("/api/learning/classes/{classId:guid}/curriculums/{curriculumId:guid}/lessons/{lessonId:guid}/progress",
+                UpdateStudentCurriculumLessonProgressAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ReadLearningProgress);
+        endpoints.MapGet("/api/learning/classes/{classId:guid}/course-content/lessons/{lessonId:guid}",
+                GetStudentLessonDetailAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ReadLearningProgress);
         endpoints.MapPost("/api/learning/classes/{classId:guid}/lessons/{lessonId:guid}/progress",
                 UpdateLessonProgressAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ReadLearningProgress);
@@ -70,7 +88,8 @@ public static class LearningEndpoints
         }
 
         var records = await session.Query<StudentProgressRecord>()
-            .Where(record => record.LearningClassId == classId)
+            .Where(record => record.OrganizationId == actor.OrganizationId &&
+                record.LearningClassId == classId)
             .OrderBy(record => record.StudentId)
             .ThenBy(record => record.ActivityId)
             .ToListAsync(cancellationToken);
@@ -93,7 +112,8 @@ public static class LearningEndpoints
         }
 
         var records = await session.Query<StudentProgressRecord>()
-            .Where(record => record.LearningClassId == classId && record.StudentId == actor.UserId)
+            .Where(record => record.OrganizationId == actor.OrganizationId &&
+                record.LearningClassId == classId && record.StudentId == actor.UserId)
             .OrderBy(record => record.ActivityId)
             .ToListAsync(cancellationToken);
         records = records.Where(record => record.ResultsReleaseAt is null ||
@@ -110,6 +130,486 @@ public static class LearningEndpoints
     private static Task<IResult> GetMyCourseProgressAsync(Guid classId, HttpContext context,
         IQuerySession session, IAcademicDirectory academics, CancellationToken cancellationToken) =>
         GetCourseProgressCoreAsync(classId, Guid.Empty, context, session, academics, cancellationToken);
+
+    private static async Task<IResult> GetStudentCourseContentAsync(Guid classId, HttpContext context,
+        IQuerySession session, IAcademicDirectory academics, CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var learningClass = await academics.FindClassAsync(actor!.OrganizationId, classId,
+            cancellationToken);
+        if (learningClass is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await academics.IsStudentEnrolledAsync(actor.OrganizationId, classId, actor.UserId,
+                cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        var course = await session.LoadAsync<Course>(learningClass.CourseId, cancellationToken);
+        if (course is null || course.OrganizationId != actor.OrganizationId ||
+            course.Status != CourseStatus.Published)
+        {
+            return Results.NotFound();
+        }
+
+        var modules = await session.Query<CourseModule>()
+            .Where(module => module.CourseId == course.Id &&
+                module.OrganizationId == actor.OrganizationId &&
+                module.Status == AcademicContentStatus.Published)
+            .OrderBy(module => module.Order)
+            .ThenBy(module => module.Id)
+            .ToListAsync(cancellationToken);
+        var moduleIds = modules.Select(module => module.Id).ToArray();
+        var lessons = moduleIds.Length == 0
+            ? new List<Lesson>()
+            : await session.Query<Lesson>()
+                .Where(lesson => lesson.CourseId == course.Id &&
+                    lesson.OrganizationId == actor.OrganizationId &&
+                    lesson.Status == AcademicContentStatus.Published &&
+                    moduleIds.Contains(lesson.CourseModuleId))
+                .OrderBy(lesson => lesson.CourseModuleId)
+                .ThenBy(lesson => lesson.Order)
+                .ThenBy(lesson => lesson.Id)
+                .ToListAsync(cancellationToken);
+        var lessonIds = lessons.Select(lesson => lesson.Id).ToArray();
+        var records = lessonIds.Length == 0
+            ? new List<StudentLessonProgressRecord>()
+            : await session.Query<StudentLessonProgressRecord>()
+                .Where(record => record.OrganizationId == actor.OrganizationId &&
+                    record.LearningClassId == classId && record.StudentId == actor.UserId &&
+                    lessonIds.Contains(record.LessonId))
+                .ToListAsync(cancellationToken);
+
+        var moduleViews = modules.Select(module =>
+        {
+            var moduleLessons = lessons.Where(lesson => lesson.CourseModuleId == module.Id)
+                .Select(lesson =>
+                {
+                    var progress = records.FirstOrDefault(record => record.LessonId == lesson.Id);
+                    return new StudentLessonSummaryResponse(lesson.Id, lesson.Title, lesson.Order,
+                        progress?.Status);
+                })
+                .ToArray();
+            return new StudentCourseModuleResponse(module.Id, module.Title, module.Order,
+                moduleLessons.Count(lesson => lesson.Status == LessonProgressStatus.Completed),
+                moduleLessons.Length, moduleLessons);
+        }).ToArray();
+        var completedLessons = moduleViews.Sum(module => module.CompletedLessons);
+        return Results.Ok(new StudentCourseContentResponse(classId, course.Id, course.Title,
+            completedLessons, lessons.Count,
+            lessons.Count == 0 ? 0m : decimal.Round(completedLessons * 100m / lessons.Count, 2),
+            moduleViews));
+    }
+
+    private static async Task<IResult> GetStudentCurriculumsAsync(Guid classId, HttpContext context,
+        IQuerySession session, IAcademicDirectory academics, CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+            return Results.Forbid();
+
+        var learningClass = await academics.FindClassAsync(actor!.OrganizationId, classId,
+            cancellationToken);
+        if (learningClass is null)
+            return Results.NotFound();
+        if (!await academics.IsStudentEnrolledAsync(actor.OrganizationId, classId, actor.UserId,
+                cancellationToken))
+            return Results.Forbid();
+
+        var course = await session.LoadAsync<Course>(learningClass.CourseId, cancellationToken);
+        if (course is null || course.OrganizationId != actor.OrganizationId ||
+            course.Status != CourseStatus.Published)
+            return Results.NotFound();
+
+        var assignments = await session.Query<ClassCurriculumAssignment>()
+            .Where(assignment => assignment.OrganizationId == actor.OrganizationId &&
+                assignment.LearningClassId == classId &&
+                assignment.Status == ClassCurriculumAssignmentStatus.Active)
+            .OrderBy(assignment => assignment.Order)
+            .ThenBy(assignment => assignment.Id)
+            .ToListAsync(cancellationToken);
+
+        var cards = new List<StudentCurriculumSummaryResponse>();
+        foreach (var assignment in assignments)
+        {
+            var resolution = await ResolveStudentCurriculumAsync(classId, assignment.CurriculumId,
+                actor, session, academics, cancellationToken);
+            if (resolution is null)
+                continue;
+            var snapshot = await BuildStudentCurriculumContentAsync(resolution, actor.UserId,
+                session, cancellationToken);
+            cards.Add(StudentCurriculumSummaryResponse.From(snapshot));
+        }
+
+        // Compatibility for demo/legacy data where modules still belong directly to Course.
+        // This keeps existing classes usable while the durable assignment model is introduced.
+        if (assignments.Count == 0)
+        {
+            var resolution = new StudentCurriculumResolution(learningClass,
+                course, new Curriculum
+                {
+                    Id = course.Id,
+                    OrganizationId = course.OrganizationId,
+                    CourseId = course.Id,
+                    Title = course.Title,
+                    Description = course.Description,
+                    Status = AcademicContentStatus.Published
+                }, true);
+            var snapshot = await BuildStudentCurriculumContentAsync(resolution, actor.UserId,
+                session, cancellationToken);
+            cards.Add(StudentCurriculumSummaryResponse.From(snapshot));
+        }
+
+        return Results.Ok(new StudentCurriculumListResponse(classId, cards.ToArray()));
+    }
+
+    private static async Task<IResult> GetStudentCurriculumContentAsync(Guid classId,
+        Guid curriculumId, HttpContext context, IQuerySession session, IAcademicDirectory academics,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+            return Results.Forbid();
+        var learningClass = await academics.FindClassAsync(actor!.OrganizationId, classId,
+            cancellationToken);
+        if (learningClass is null)
+            return Results.NotFound();
+        if (!await academics.IsStudentEnrolledAsync(actor.OrganizationId, classId, actor.UserId,
+                cancellationToken))
+            return Results.Forbid();
+        var resolution = await ResolveStudentCurriculumAsync(classId, curriculumId, actor, session,
+            academics, cancellationToken);
+        if (resolution is null)
+            return Results.NotFound();
+        return Results.Ok(await BuildStudentCurriculumContentAsync(resolution, actor.UserId,
+            session, cancellationToken));
+    }
+
+    private static async Task<StudentCurriculumResolution?> ResolveStudentCurriculumAsync(
+        Guid classId, Guid curriculumId, AuthenticatedActor actor, IQuerySession session,
+        IAcademicDirectory academics, CancellationToken cancellationToken)
+    {
+        var learningClass = await academics.FindClassAsync(actor.OrganizationId, classId,
+            cancellationToken);
+        if (learningClass is null)
+            return null;
+        var course = await session.LoadAsync<Course>(learningClass.CourseId, cancellationToken);
+        if (course is null || course.OrganizationId != actor.OrganizationId ||
+            course.Status != CourseStatus.Published)
+            return null;
+
+        var hasAssignments = await session.Query<ClassCurriculumAssignment>()
+            .AnyAsync(assignment => assignment.OrganizationId == actor.OrganizationId &&
+                assignment.LearningClassId == classId &&
+                assignment.Status == ClassCurriculumAssignmentStatus.Active);
+        var curriculum = await session.LoadAsync<Curriculum>(curriculumId, cancellationToken);
+        if (curriculum is not null && curriculum.OrganizationId == actor.OrganizationId &&
+            curriculum.CourseId == course.Id && curriculum.Status == AcademicContentStatus.Published &&
+            await session.Query<ClassCurriculumAssignment>().AnyAsync(assignment =>
+                assignment.OrganizationId == actor.OrganizationId &&
+                assignment.LearningClassId == classId && assignment.CurriculumId == curriculumId &&
+                assignment.Status == ClassCurriculumAssignmentStatus.Active))
+        {
+            return new StudentCurriculumResolution(learningClass, course, curriculum, false);
+        }
+
+        return !hasAssignments && curriculumId == course.Id
+            ? new StudentCurriculumResolution(learningClass, course, new Curriculum
+            {
+                Id = course.Id,
+                OrganizationId = course.OrganizationId,
+                CourseId = course.Id,
+                Title = course.Title,
+                Description = course.Description,
+                Status = AcademicContentStatus.Published
+            }, true)
+            : null;
+    }
+
+    private static async Task<StudentCurriculumContentResponse> BuildStudentCurriculumContentAsync(
+        StudentCurriculumResolution resolution, Guid studentId, IQuerySession session,
+        CancellationToken cancellationToken)
+    {
+        var modules = await session.Query<CourseModule>()
+            .Where(module => module.CourseId == resolution.Course.Id &&
+                module.OrganizationId == resolution.Course.OrganizationId &&
+                module.Status == AcademicContentStatus.Published)
+            .OrderBy(module => module.Order)
+            .ThenBy(module => module.Id)
+            .ToListAsync(cancellationToken);
+        var moduleIds = modules.Select(module => module.Id).ToArray();
+        var lessons = moduleIds.Length == 0
+            ? new List<Lesson>()
+            : await session.Query<Lesson>()
+                .Where(lesson => lesson.CourseId == resolution.Course.Id &&
+                    lesson.OrganizationId == resolution.Course.OrganizationId &&
+                    lesson.Status == AcademicContentStatus.Published &&
+                    moduleIds.Contains(lesson.CourseModuleId))
+                .OrderBy(lesson => lesson.CourseModuleId)
+                .ThenBy(lesson => lesson.Order)
+                .ThenBy(lesson => lesson.Id)
+                .ToListAsync(cancellationToken);
+        var lessonIds = lessons.Select(lesson => lesson.Id).ToArray();
+        var records = lessonIds.Length == 0
+            ? new List<StudentLessonProgressRecord>()
+            : await session.Query<StudentLessonProgressRecord>()
+                .Where(record => record.OrganizationId == resolution.Course.OrganizationId &&
+                    record.LearningClassId == resolution.LearningClass.Id &&
+                    record.StudentId == studentId && lessonIds.Contains(record.LessonId) &&
+                    (record.CurriculumId == resolution.Curriculum.Id ||
+                     (record.CurriculumId == null && record.CourseId == resolution.Course.Id)))
+                .ToListAsync(cancellationToken);
+        var moduleViews = modules.Select(module =>
+        {
+            var moduleLessons = lessons.Where(lesson => lesson.CourseModuleId == module.Id)
+                .Select(lesson =>
+                {
+                    var progress = records.FirstOrDefault(record => record.LessonId == lesson.Id);
+                    return new StudentLessonSummaryResponse(lesson.Id, lesson.Title, lesson.Order,
+                        progress?.Status);
+                }).ToArray();
+            return new StudentCourseModuleResponse(module.Id, module.Title, module.Order,
+                moduleLessons.Count(lesson => lesson.Status == LessonProgressStatus.Completed),
+                moduleLessons.Length, moduleLessons);
+        }).ToArray();
+        var completedLessons = moduleViews.Sum(module => module.CompletedLessons);
+        var title = resolution.IsLegacy && modules.Count == 1 && modules[0].Title.Length > 0
+            ? modules[0].Title
+            : resolution.Curriculum.Title;
+        return new StudentCurriculumContentResponse(resolution.LearningClass.Id,
+            resolution.Curriculum.Id, resolution.Course.Id, title,
+            resolution.Curriculum.Description, resolution.Course.Title,
+            completedLessons, lessons.Count,
+            lessons.Count == 0 ? 0m : decimal.Round(completedLessons * 100m / lessons.Count, 2),
+            moduleViews);
+    }
+
+    private static async Task<IResult> GetStudentLessonDetailAsync(Guid classId, Guid lessonId,
+        HttpContext context, IQuerySession session, IAcademicDirectory academics,
+        ILearningResourceStorage storage, CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var learningClass = await academics.FindClassAsync(actor!.OrganizationId, classId,
+            cancellationToken);
+        if (learningClass is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await academics.IsStudentEnrolledAsync(actor.OrganizationId, classId, actor.UserId,
+                cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        var course = await session.LoadAsync<Course>(learningClass.CourseId, cancellationToken);
+        var lesson = await session.LoadAsync<Lesson>(lessonId, cancellationToken);
+        if (course is null || course.OrganizationId != actor.OrganizationId ||
+            course.Status != CourseStatus.Published || lesson is null ||
+            lesson.OrganizationId != actor.OrganizationId || lesson.CourseId != course.Id ||
+            lesson.Status != AcademicContentStatus.Published)
+        {
+            return Results.NotFound();
+        }
+
+        var module = await session.LoadAsync<CourseModule>(lesson.CourseModuleId, cancellationToken);
+        if (module is null || module.OrganizationId != actor.OrganizationId ||
+            module.CourseId != course.Id || module.Status != AcademicContentStatus.Published)
+        {
+            return Results.NotFound();
+        }
+
+        var progressId = LearningConstants.LessonProgressId(lessonId, classId, actor.UserId);
+        var progress = await session.LoadAsync<StudentLessonProgressRecord>(progressId,
+            cancellationToken);
+        var resources = await session.Query<LearningResource>()
+            .Where(resource => resource.OrganizationId == actor.OrganizationId &&
+                resource.CourseId == course.Id && resource.LearningClassId == classId &&
+                resource.LessonId == lessonId &&
+                resource.Status == LearningResourceStatus.Published)
+            .OrderBy(resource => resource.CreatedAt)
+            .ThenBy(resource => resource.Id)
+            .ToListAsync(cancellationToken);
+        var resourceViews = new List<StudentLessonResourceResponse>(resources.Count);
+        foreach (var resource in resources)
+        {
+            string? accessUrl = resource.ExternalUrl;
+            if (resource.StorageKey is { Length: > 0 } storageKey)
+            {
+                try
+                {
+                    accessUrl = await storage.GetReadUrlAsync(actor.OrganizationId, storageKey,
+                        cancellationToken);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+                }
+            }
+            resourceViews.Add(StudentLessonResourceResponse.From(resource, accessUrl));
+        }
+
+        return Results.Ok(new StudentLessonDetailResponse(classId, course.Id, module.Id,
+            module.Title, lesson.Id, lesson.Title, lesson.Order, lesson.ContentSummary,
+            progress?.Status, progress?.StartedAt, progress?.CompletedAt,
+            resourceViews.ToArray()));
+    }
+
+    private static async Task<IResult> GetStudentCurriculumLessonDetailAsync(Guid classId,
+        Guid curriculumId, Guid lessonId, HttpContext context, IQuerySession session,
+        IAcademicDirectory academics, ILearningResourceStorage storage,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+            return Results.Forbid();
+        var learningClass = await academics.FindClassAsync(actor!.OrganizationId, classId,
+            cancellationToken);
+        if (learningClass is null)
+            return Results.NotFound();
+        if (!await academics.IsStudentEnrolledAsync(actor.OrganizationId, classId, actor.UserId,
+                cancellationToken))
+            return Results.Forbid();
+        var resolution = await ResolveStudentCurriculumAsync(classId, curriculumId, actor, session,
+            academics, cancellationToken);
+        if (resolution is null)
+            return Results.NotFound();
+
+        var lesson = await session.LoadAsync<Lesson>(lessonId, cancellationToken);
+        if (lesson is null || lesson.OrganizationId != actor.OrganizationId ||
+            lesson.CourseId != resolution.Course.Id || lesson.Status != AcademicContentStatus.Published)
+            return Results.NotFound();
+        var module = await session.LoadAsync<CourseModule>(lesson.CourseModuleId, cancellationToken);
+        if (module is null || module.OrganizationId != actor.OrganizationId ||
+            module.CourseId != resolution.Course.Id || module.Status != AcademicContentStatus.Published)
+            return Results.NotFound();
+
+        var progress = await LoadCurriculumProgressAsync(resolution.Curriculum.Id, lessonId, classId,
+            actor.UserId, session, cancellationToken);
+        var resources = await session.Query<LearningResource>()
+            .Where(resource => resource.OrganizationId == actor.OrganizationId &&
+                resource.CourseId == resolution.Course.Id && resource.LearningClassId == classId &&
+                resource.LessonId == lessonId && resource.Status == LearningResourceStatus.Published)
+            .OrderBy(resource => resource.CreatedAt)
+            .ThenBy(resource => resource.Id)
+            .ToListAsync(cancellationToken);
+        var resourceViews = new List<StudentLessonResourceResponse>(resources.Count);
+        foreach (var resource in resources)
+        {
+            string? accessUrl = resource.ExternalUrl;
+            if (resource.StorageKey is { Length: > 0 } storageKey)
+            {
+                try
+                {
+                    accessUrl = await storage.GetReadUrlAsync(actor.OrganizationId, storageKey,
+                        cancellationToken);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+                }
+            }
+            resourceViews.Add(StudentLessonResourceResponse.From(resource, accessUrl));
+        }
+        return Results.Ok(new StudentLessonDetailResponse(classId, resolution.Course.Id, module.Id,
+            module.Title, lesson.Id, lesson.Title, lesson.Order, lesson.ContentSummary,
+            progress?.Status, progress?.StartedAt, progress?.CompletedAt,
+            resourceViews.ToArray()));
+    }
+
+    private static async Task<IResult> UpdateStudentCurriculumLessonProgressAsync(Guid classId,
+        Guid curriculumId, Guid lessonId, UpdateLessonProgressRequest request, HttpContext context,
+        IDocumentSession session, IQuerySession querySession, IAcademicDirectory academics,
+        IMessageBus messageBus, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+            return Results.Forbid();
+        if (request.Status is not (LessonProgressStatus.InProgress or LessonProgressStatus.Completed))
+            return Results.BadRequest(new { error = "Lesson progress status is invalid." });
+        var learningClass = await academics.FindClassAsync(actor!.OrganizationId, classId,
+            cancellationToken);
+        if (learningClass is null)
+            return Results.NotFound();
+        if (learningClass.Status is LearningClassStatus.Completed or LearningClassStatus.Archived)
+            return Results.Conflict(new { error = "A completed or archived class cannot receive lesson progress." });
+        if (!await academics.IsStudentEnrolledAsync(actor.OrganizationId, classId, actor.UserId,
+                cancellationToken))
+            return Results.Forbid();
+        var resolution = await ResolveStudentCurriculumAsync(classId, curriculumId, actor,
+            querySession, academics, cancellationToken);
+        if (resolution is null)
+            return Results.NotFound();
+        var lesson = await querySession.LoadAsync<Lesson>(lessonId, cancellationToken);
+        if (lesson is null || lesson.CourseId != resolution.Course.Id ||
+            lesson.Status != AcademicContentStatus.Published)
+            return Results.NotFound();
+
+        var now = DateTimeOffset.UtcNow;
+        var id = LearningConstants.CurriculumLessonProgressId(curriculumId, lessonId, classId,
+            actor.UserId);
+        var record = await session.LoadAsync<StudentLessonProgressRecord>(id, cancellationToken);
+        if (record is null && curriculumId == resolution.Course.Id)
+        {
+            record = await session.LoadAsync<StudentLessonProgressRecord>(
+                LearningConstants.LessonProgressId(lessonId, classId, actor.UserId),
+                cancellationToken);
+        }
+        if (record is not null && record.Status == LessonProgressStatus.Completed &&
+            request.Status == LessonProgressStatus.InProgress)
+            return Results.Conflict(new { error = "Completed lesson progress cannot move backwards." });
+
+        var isNew = record is null;
+        record ??= new StudentLessonProgressRecord
+        {
+            Id = id,
+            OrganizationId = actor.OrganizationId,
+            LearningClassId = classId,
+            CourseId = resolution.Course.Id,
+            CurriculumId = curriculumId,
+            LessonId = lessonId,
+            StudentId = actor.UserId,
+            StartedAt = now
+        };
+        record.CurriculumId = curriculumId;
+        record.Status = request.Status;
+        record.CompletedAt = request.Status == LessonProgressStatus.Completed
+            ? record.CompletedAt ?? now
+            : null;
+        record.UpdatedAt = now;
+        if (isNew) session.Insert(record); else session.Update(record);
+        await session.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await messageBus.PublishAsync(new LessonProgressChangedForReporting(
+                actor.OrganizationId, classId, actor.UserId));
+        }
+        catch (Exception exception)
+        {
+            loggerFactory.CreateLogger("LearningPlatform.Learning.Progress").LogWarning(exception,
+                "Unable to enqueue lesson progress reporting refresh for {ClassId}/{StudentId}.",
+                classId, actor.UserId);
+        }
+        return Results.Ok(LessonProgressEntryResponse.From(actor.UserId, lesson, record));
+    }
+
+    private static async Task<StudentLessonProgressRecord?> LoadCurriculumProgressAsync(
+        Guid curriculumId, Guid lessonId, Guid classId, Guid studentId, IQuerySession session,
+        CancellationToken cancellationToken)
+    {
+        var record = await session.LoadAsync<StudentLessonProgressRecord>(
+            LearningConstants.CurriculumLessonProgressId(curriculumId, lessonId, classId, studentId),
+            cancellationToken);
+        return record ?? (curriculumId == Guid.Empty ? null : await session.LoadAsync<StudentLessonProgressRecord>(
+            LearningConstants.LessonProgressId(lessonId, classId, studentId), cancellationToken));
+    }
 
     private static async Task<IResult> GetCourseProgressCoreAsync(Guid classId, Guid? studentFilter,
         HttpContext context, IQuerySession session, IAcademicDirectory academics,
@@ -142,13 +642,15 @@ public static class LearningEndpoints
         }
 
         var lessons = await session.Query<Lesson>()
-            .Where(lesson => lesson.CourseId == learningClass.CourseId &&
+            .Where(lesson => lesson.OrganizationId == actor.OrganizationId &&
+                lesson.CourseId == learningClass.CourseId &&
                 lesson.Status == AcademicContentStatus.Published)
             .OrderBy(lesson => lesson.Order)
             .ToListAsync(cancellationToken);
         var studentIds = isTeacher
             ? await session.Query<Enrollment>()
-                .Where(enrollment => enrollment.LearningClassId == classId &&
+                .Where(enrollment => enrollment.OrganizationId == actor.OrganizationId &&
+                    enrollment.LearningClassId == classId &&
                     enrollment.Status == EnrollmentStatus.Active)
                 .Select(enrollment => enrollment.StudentId)
                 .OrderBy(studentId => studentId)
@@ -161,7 +663,8 @@ public static class LearningEndpoints
         }
 
         var records = await session.Query<StudentLessonProgressRecord>()
-            .Where(record => record.LearningClassId == classId &&
+            .Where(record => record.OrganizationId == actor.OrganizationId &&
+                record.LearningClassId == classId &&
                 studentIds.Contains(record.StudentId))
             .ToListAsync(cancellationToken);
         var entries = studentIds.SelectMany(studentId => lessons.Select(lesson =>
@@ -763,6 +1266,25 @@ public sealed record LearningProgressResponse(Guid LearningClassId,
 public sealed record CourseProgressResponse(Guid LearningClassId, Guid CourseId, int TotalLessons,
     LessonProgressEntryResponse[] Entries)
 {
+    /// <summary>
+    /// The progress headline is derived from the same published-lesson entries
+    /// that are returned to the page. For a teacher view this is the average
+    /// completed lesson count across the selected class; for a student view it
+    /// is that student's count.
+    /// </summary>
+    public decimal CompletedLessons
+    {
+        get
+        {
+            if (TotalLessons == 0) return 0;
+            var groups = Entries.GroupBy(entry => entry.StudentId).ToArray();
+            return groups.Length == 0
+                ? 0
+                : decimal.Round((decimal)groups.Average(group => group.Count(entry =>
+                    entry.Status == LessonProgressStatus.Completed)), 2);
+        }
+    }
+
     public decimal CompletionPercent
     {
         get
@@ -792,6 +1314,53 @@ public sealed record LessonProgressEntryResponse(Guid StudentId, Guid LessonId, 
 }
 
 public sealed record UpdateLessonProgressRequest(LessonProgressStatus Status);
+
+internal sealed record StudentCurriculumResolution(AcademicClassMember LearningClass, Course Course,
+    Curriculum Curriculum, bool IsLegacy);
+
+public sealed record StudentCurriculumListResponse(Guid LearningClassId,
+    StudentCurriculumSummaryResponse[] Curriculums);
+
+public sealed record StudentCurriculumSummaryResponse(Guid CurriculumId, Guid CourseId,
+    string Title, string Description, int ModuleCount, int LessonCount, int CompletedLessons,
+    decimal Progress)
+{
+    public static StudentCurriculumSummaryResponse From(StudentCurriculumContentResponse snapshot) =>
+        new(snapshot.CurriculumId, snapshot.CourseId, snapshot.CurriculumTitle,
+            snapshot.CurriculumDescription, snapshot.Modules.Length, snapshot.TotalLessons,
+            snapshot.CompletedLessons, snapshot.Progress);
+}
+
+public sealed record StudentCurriculumContentResponse(Guid LearningClassId, Guid CurriculumId,
+    Guid CourseId, string CurriculumTitle, string CurriculumDescription, string CourseTitle,
+    int CompletedLessons,
+    int TotalLessons, decimal Progress, StudentCourseModuleResponse[] Modules);
+
+public sealed record StudentCourseContentResponse(Guid LearningClassId, Guid CourseId,
+    string CourseTitle, int CompletedLessons, int TotalLessons, decimal Progress,
+    StudentCourseModuleResponse[] Modules);
+
+public sealed record StudentCourseModuleResponse(Guid ModuleId, string Title, int Order,
+    int CompletedLessons, int TotalLessons, StudentLessonSummaryResponse[] Lessons);
+
+public sealed record StudentLessonSummaryResponse(Guid LessonId, string Title, int Order,
+    LessonProgressStatus? Status);
+
+public sealed record StudentLessonDetailResponse(Guid LearningClassId, Guid CourseId, Guid ModuleId,
+    string ModuleTitle, Guid LessonId, string Title, int Order, string ContentSummary,
+    LessonProgressStatus? Status, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt,
+    StudentLessonResourceResponse[] Resources);
+
+public sealed record StudentLessonResourceResponse(Guid Id, string Title, string Description,
+    LearningResourceType Type, string? ExternalUrl, string? FileName, string? ContentType,
+    long Size, int? DurationSeconds, string? AccessUrl)
+{
+    public static StudentLessonResourceResponse From(LearningResource resource,
+        string? accessUrl = null) =>
+        new(resource.Id, resource.Title, resource.Description, resource.Type, resource.ExternalUrl,
+            resource.FileName, resource.ContentType, resource.Size, resource.DurationSeconds,
+            accessUrl ?? resource.ExternalUrl);
+}
 
 public sealed record LearningProgressEntryResponse(Guid StudentId, Guid ActivityId,
     string ActivityTitle, decimal Score, decimal MaxScore, decimal Completion,

@@ -23,6 +23,8 @@ public static class LiveSessionEndpoints
     {
         endpoints.MapPost("/api/classroom/classes/{classId:guid}/sessions", CreateSessionAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageLiveSessions);
+        endpoints.MapGet("/api/classroom/classes/{classId:guid}/sessions", ListClassSessionsAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.JoinLiveSessions);
         endpoints.MapGet("/api/classroom/sessions/{sessionId:guid}", GetSessionAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.JoinLiveSessions);
         endpoints.MapPost("/api/classroom/sessions/{sessionId:guid}/start", StartSessionAsync)
@@ -33,8 +35,65 @@ public static class LiveSessionEndpoints
             .RequireAuthorization(IdentityAuthorizationPolicies.JoinLiveSessions);
         endpoints.MapPost("/api/classroom/sessions/{sessionId:guid}/leave", LeaveSessionAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.JoinLiveSessions);
+        endpoints.MapPost("/api/classroom/sessions/{sessionId:guid}/reconnect", ReconnectSessionAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.JoinLiveSessions);
         endpoints.MapHub<LiveSessionHub>("/hubs/live/{sessionId:guid}")
             .RequireAuthorization(IdentityAuthorizationPolicies.JoinLiveSessions);
+    }
+
+    private static async Task<IResult> ListClassSessionsAsync(
+        Guid classId,
+        HttpContext context,
+        IQuerySession session,
+        IAcademicDirectory academics,
+        bool? includeEnded,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var learningClass = await academics.FindClassAsync(actor!.OrganizationId, classId,
+            cancellationToken);
+        if (learningClass is null)
+        {
+            return Results.NotFound();
+        }
+
+        var canAccessClass = actor.Permissions.Contains(PermissionCatalog.ManageOrganizations,
+                StringComparer.Ordinal) ||
+            await academics.IsClassCreatorAsync(actor.OrganizationId, classId, actor.UserId,
+                cancellationToken) ||
+            await academics.IsTeacherAssignedAsync(actor.OrganizationId, classId, actor.UserId,
+                cancellationToken) ||
+            await academics.IsStudentEnrolledAsync(actor.OrganizationId, classId, actor.UserId,
+                cancellationToken);
+        if (!canAccessClass)
+        {
+            return Results.Forbid();
+        }
+
+        var canReadAttendanceHistory = includeEnded == true &&
+            actor.Permissions.Contains(PermissionCatalog.ManageAttendance, StringComparer.Ordinal);
+        var sessionsQuery = session.Query<LiveSession>()
+            .Where(value => value.OrganizationId == actor.OrganizationId &&
+                            value.LearningClassId == classId &&
+                            (value.Status == LiveSessionStatus.Scheduled ||
+                             value.Status == LiveSessionStatus.Started ||
+                             (canReadAttendanceHistory && value.Status == LiveSessionStatus.Ended)));
+        if (!actor.Permissions.Contains(PermissionCatalog.ManageLiveSessions, StringComparer.Ordinal) &&
+            !canReadAttendanceHistory)
+        {
+            sessionsQuery = sessionsQuery.Where(value => value.Status == LiveSessionStatus.Started);
+        }
+
+        var sessions = await sessionsQuery
+            .OrderByDescending(value => value.Status)
+            .ThenByDescending(value => value.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        return Results.Ok(sessions.Select(LiveSessionResponse.From));
     }
 
     private static async Task<IResult> CreateSessionAsync(
@@ -59,6 +118,11 @@ public static class LiveSessionEndpoints
         if (learningClass.Status is LearningClassStatus.Completed or LearningClassStatus.Archived)
         {
             return Results.Conflict(new { error = "A completed or archived class cannot create a live session." });
+        }
+
+        if (request.LateAfterMinutes is < 0 or > 240)
+        {
+            return Results.BadRequest(new { error = "LateAfterMinutes must be between 0 and 240." });
         }
 
         var teacherId = request.TeacherId ?? actor.UserId;
@@ -102,6 +166,7 @@ public static class LiveSessionEndpoints
             ClassScheduleId = request.ClassScheduleId,
             TeacherId = teacherId,
             Status = LiveSessionStatus.Scheduled,
+            LateAfterMinutes = request.LateAfterMinutes ?? 15,
             MediaRoomId = LiveSessionRules.RequireMediaRoomId($"rlms-{Guid.NewGuid():N}"),
             CreatedAt = now,
             UpdatedAt = now
@@ -137,6 +202,13 @@ public static class LiveSessionEndpoints
             return Results.Forbid();
         }
 
+        var moderation = await session.LoadAsync<LiveSessionParticipantModeration>(
+            ClassroomConstants.ModerationId(sessionId, actor.UserId), cancellationToken);
+        if (moderation?.IsBlocked == true)
+        {
+            return Results.Forbid();
+        }
+
         return Results.Ok(LiveSessionResponse.From(liveSession));
     }
 
@@ -146,6 +218,7 @@ public static class LiveSessionEndpoints
         IDocumentSession session,
         IAcademicDirectory academics,
         LiveSessionSnapshotCache snapshotCache,
+        IHubContext<LiveSessionHub> hub,
         CancellationToken cancellationToken)
     {
         var liveSession = await session.LoadAsync<LiveSession>(sessionId, cancellationToken);
@@ -172,6 +245,12 @@ public static class LiveSessionEndpoints
             session.Update(liveSession);
             await session.SaveChangesAsync(cancellationToken);
             await snapshotCache.InvalidateAsync(liveSession.OrganizationId, liveSession.Id);
+            // A student may already be watching the scheduled room. Notify the
+            // tenant-scoped SignalR group after the durable state transition so
+            // that every preloaded tab can join without a reload.
+            await hub.Clients.Group(LiveSessionHub.Group(liveSession.OrganizationId, liveSession.Id))
+                .SendAsync("session-started", new LiveSessionStartedSignal(liveSession.Id,
+                    liveSession.StartedAt.Value), CancellationToken.None);
         }
 
         return Results.Ok(LiveSessionResponse.From(liveSession));
@@ -183,6 +262,7 @@ public static class LiveSessionEndpoints
         IDocumentSession session,
         IAcademicDirectory academics,
         IMessageBus messageBus,
+        IHubContext<LiveSessionHub> hub,
         ILogger<LiveSessionHub> logger,
         LiveSessionSnapshotCache snapshotCache,
         CancellationToken cancellationToken)
@@ -231,6 +311,10 @@ public static class LiveSessionEndpoints
             await snapshotCache.InvalidateAsync(liveSession.OrganizationId, liveSession.Id);
             await AttendanceMessagePublisher.PublishSessionEndedAsync(messageBus, logger,
                 liveSession.OrganizationId, liveSession.Id, liveSession.EndedAt.Value);
+            await hub.Clients.Group(LiveSessionHub.Group(liveSession.OrganizationId, liveSession.Id))
+                .SendAsync("session-ended",
+                    new LiveSessionEndedSignal(liveSession.Id, liveSession.EndedAt.Value),
+                    CancellationToken.None);
         }
 
         return Results.Ok(LiveSessionResponse.From(liveSession));
@@ -260,12 +344,24 @@ public static class LiveSessionEndpoints
             return Results.NotFound();
         }
 
+        if (liveSession.Status == LiveSessionStatus.Ended)
+        {
+            return Results.Conflict(new { error = "Live session has ended." });
+        }
+
         if (liveSession.Status != LiveSessionStatus.Started)
         {
             return Results.Conflict(new { error = "The live session has not started." });
         }
 
         if (!await CanJoinAsync(actor!, liveSession, academics, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        var moderation = await session.LoadAsync<LiveSessionParticipantModeration>(
+            ClassroomConstants.ModerationId(sessionId, actor.UserId), cancellationToken);
+        if (moderation?.IsBlocked == true)
         {
             return Results.Forbid();
         }
@@ -325,6 +421,51 @@ public static class LiveSessionEndpoints
         return Results.NoContent();
     }
 
+    private static async Task<IResult> ReconnectSessionAsync(
+        Guid sessionId,
+        HttpContext context,
+        IQuerySession session,
+        IAcademicDirectory academics,
+        IMessageBus messageBus,
+        ILogger<LiveSessionHub> logger,
+        LiveSessionSnapshotCache snapshotCache,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+        {
+            return Results.Forbid();
+        }
+
+        var liveSession = await snapshotCache.GetAsync(actor!.OrganizationId, sessionId,
+            token => session.LoadAsync<LiveSession>(sessionId, token), cancellationToken);
+        if (liveSession is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (liveSession.Status != LiveSessionStatus.Started ||
+            !await CanJoinAsync(actor, liveSession, academics, cancellationToken))
+        {
+            return Results.Conflict(new { error = "The live session is no longer available." });
+        }
+
+        var moderation = await session.LoadAsync<LiveSessionParticipantModeration>(
+            ClassroomConstants.ModerationId(sessionId, actor.UserId), cancellationToken);
+        if (moderation?.IsBlocked == true)
+        {
+            return Results.Forbid();
+        }
+
+        if (await academics.IsStudentEnrolledAsync(actor.OrganizationId, liveSession.LearningClassId,
+                actor.UserId, cancellationToken))
+        {
+            await AttendanceMessagePublisher.PublishParticipantReconnectedAsync(messageBus, logger,
+                actor.OrganizationId, sessionId, actor.UserId, DateTimeOffset.UtcNow);
+        }
+
+        return Results.NoContent();
+    }
+
     private static async Task<bool> CanManageAsync(
         HttpContext context, LiveSession liveSession, IAcademicDirectory academics,
         CancellationToken cancellationToken)
@@ -348,7 +489,9 @@ public static class LiveSessionEndpoints
 public sealed class LiveSessionHub(
     IDocumentStore store,
     IAcademicDirectory academics,
+    IIdentityDirectory identity,
     LivePresenceStore presence,
+    LivePresentationStore presentation,
     LiveSessionSnapshotCache snapshotCache,
     IMessageBus messageBus,
     ILogger<LiveSessionHub> logger) : Hub
@@ -374,8 +517,9 @@ public sealed class LiveSessionHub(
                 await using var session = store.QuerySession(actor.OrganizationId.ToString("D"));
                 return await session.LoadAsync<LiveSession>(sessionId);
             }, Context.ConnectionAborted);
-        if (liveSession is null || liveSession.Status != LiveSessionStatus.Started ||
-            !await CanJoinAsync(actor, liveSession))
+        if (liveSession is null || (liveSession.Status != LiveSessionStatus.Scheduled &&
+                liveSession.Status != LiveSessionStatus.Started) ||
+            !await CanJoinAsync(actor, liveSession) || await IsBlockedAsync(actor, liveSession))
         {
             Context.Abort();
             return;
@@ -383,8 +527,33 @@ public sealed class LiveSessionHub(
 
         var group = Group(actor.OrganizationId, sessionId);
         await Groups.AddToGroupAsync(Context.ConnectionId, group);
+        if (liveSession.Status == LiveSessionStatus.Scheduled)
+        {
+            await Clients.Caller.SendAsync("session-state",
+                new LiveSessionStateSignal(liveSession.Id, liveSession.Status,
+                    liveSession.StartedAt, liveSession.EndedAt), Context.ConnectionAborted);
+            await base.OnConnectedAsync();
+            return;
+        }
+
         await presence.MarkJoinedAsync(actor.OrganizationId, sessionId, actor.UserId,
             connectionId: Context.ConnectionId);
+        var moderation = await LoadModerationAsync(actor.OrganizationId, sessionId, actor.UserId);
+        if (moderation?.IsMuted == true)
+        {
+            await Clients.Caller.SendAsync("participant-moderation-state",
+                new ModerationSignal(actor.UserId, "mute", DateTimeOffset.UtcNow),
+                Context.ConnectionAborted);
+        }
+        var currentPresentation = await presentation.GetAsync(actor.OrganizationId, sessionId,
+            Context.ConnectionAborted);
+        if (currentPresentation is not null)
+        {
+            await Clients.Caller.SendAsync("presentation-started",
+                PresentationSignal.From(currentPresentation), Context.ConnectionAborted);
+        }
+        var member = await identity.FindActiveMemberAsync(actor.OrganizationId, actor.UserId,
+            Context.ConnectionAborted);
         if (await academics.IsStudentEnrolledAsync(actor.OrganizationId, liveSession.LearningClassId,
                 actor.UserId))
         {
@@ -393,6 +562,11 @@ public sealed class LiveSessionHub(
         }
         await Clients.Group(group).SendAsync("participant-joined",
             new PresenceDelta(actor.UserId, DateTimeOffset.UtcNow));
+        if (member is not null)
+        {
+            await Clients.Group(group).SendAsync("participant-presence-joined",
+                new PresenceParticipant(member.Id, member.DisplayName, DateTimeOffset.UtcNow));
+        }
         await base.OnConnectedAsync();
     }
 
@@ -408,16 +582,141 @@ public sealed class LiveSessionHub(
                     await using var session = store.QuerySession(actor.OrganizationId.ToString("D"));
                     return await session.LoadAsync<LiveSession>(sessionId);
                 }, Context.ConnectionAborted);
-            if (liveSession is null || liveSession.Status != LiveSessionStatus.Started ||
+            if (liveSession is null || (liveSession.Status != LiveSessionStatus.Scheduled &&
+                    liveSession.Status != LiveSessionStatus.Started) ||
                 !await CanJoinAsync(actor, liveSession))
             {
                 Context.Abort();
                 return;
             }
 
-            await presence.MarkJoinedAsync(actor.OrganizationId, sessionId, actor.UserId,
-                connectionId: Context.ConnectionId);
+            if (liveSession.Status == LiveSessionStatus.Started)
+            {
+                await presence.MarkJoinedAsync(actor.OrganizationId, sessionId, actor.UserId,
+                    connectionId: Context.ConnectionId);
+            }
         }
+    }
+
+    /// <summary>
+    /// Returns the current participant IDs to the caller so a newly connected
+    /// browser can establish WebRTC peer connections in either direction.
+    /// Only signaling metadata travels through SignalR; media stays on the
+    /// WebRTC media path.
+    /// </summary>
+    public async Task RequestMediaPeers()
+    {
+        var participant = await RequireParticipantAsync();
+        var users = await presence.GetUsersAsync(participant.Actor.OrganizationId,
+            participant.Session.Id, Context.ConnectionAborted);
+        await Clients.Caller.SendAsync("participant-snapshot",
+            users.Where(userId => userId != participant.Actor.UserId), Context.ConnectionAborted);
+        var members = new List<PresenceParticipant>(users.Count);
+        foreach (var userId in users)
+        {
+            var member = await identity.FindActiveMemberAsync(participant.Actor.OrganizationId, userId,
+                Context.ConnectionAborted);
+            if (member is not null)
+            {
+                members.Add(new PresenceParticipant(member.Id, member.DisplayName, DateTimeOffset.UtcNow));
+            }
+        }
+        await Clients.Caller.SendAsync("participant-presence-snapshot", members,
+            Context.ConnectionAborted);
+    }
+
+    public async Task SendMediaOffer(Guid targetUserId, string sdp)
+    {
+        var participant = await RequireParticipantAsync();
+        RequireSignalPayload(targetUserId, sdp, maxLength: 256_000);
+        await Clients.Group(Group(participant.Actor.OrganizationId, participant.Session.Id))
+            .SendAsync("media-offer",
+                new MediaOfferSignal(participant.Actor.UserId, targetUserId, sdp),
+                Context.ConnectionAborted);
+    }
+
+    public async Task SendMediaAnswer(Guid targetUserId, string sdp)
+    {
+        var participant = await RequireParticipantAsync();
+        RequireSignalPayload(targetUserId, sdp, maxLength: 256_000);
+        await Clients.Group(Group(participant.Actor.OrganizationId, participant.Session.Id))
+            .SendAsync("media-answer",
+                new MediaAnswerSignal(participant.Actor.UserId, targetUserId, sdp),
+                Context.ConnectionAborted);
+    }
+
+    public async Task SendMediaIceCandidate(Guid targetUserId, MediaIceCandidateRequest candidate)
+    {
+        var participant = await RequireParticipantAsync();
+        if (targetUserId == Guid.Empty || candidate is null || string.IsNullOrWhiteSpace(candidate.Candidate) ||
+            candidate.Candidate.Length > 16_000)
+        {
+            throw new HubException("Invalid media ICE candidate.");
+        }
+
+        await Clients.Group(Group(participant.Actor.OrganizationId, participant.Session.Id))
+            .SendAsync("media-ice-candidate",
+                new MediaIceCandidateSignal(participant.Actor.UserId, targetUserId, candidate.Candidate,
+                    candidate.SdpMid, candidate.SdpMLineIndex),
+                Context.ConnectionAborted);
+    }
+
+    public async Task<PresentationReservationResponse> RequestPresentation(bool takeover = false)
+    {
+        var participant = await RequireParticipantAsync();
+        var isTeacher = participant.Actor.Permissions.Contains(
+            PermissionCatalog.ManageLiveSessions, StringComparer.Ordinal);
+        if (takeover && !isTeacher)
+        {
+            throw new HubException("Only the teacher can take over presentation.");
+        }
+
+        var result = await presentation.TryAcquireAsync(
+            participant.Actor.OrganizationId,
+            participant.Session.Id,
+            participant.Actor.UserId,
+            isTeacher,
+            Context.ConnectionId,
+            takeover && isTeacher,
+            Context.ConnectionAborted);
+        if (!result.Acquired)
+        {
+            return PresentationReservationResponse.Busy(result.Current);
+        }
+
+        var group = Group(participant.Actor.OrganizationId, participant.Session.Id);
+        if (result.Replaced is not null && result.Replaced.UserId != participant.Actor.UserId)
+        {
+            await Clients.Group(group).SendAsync("presentation-replaced",
+                new PresentationReplacementSignal(result.Replaced.UserId, participant.Actor.UserId,
+                    isTeacher, DateTimeOffset.UtcNow), CancellationToken.None);
+        }
+
+        var lease = result.Current ?? new LivePresentationLease(
+            participant.Actor.UserId, isTeacher, Context.ConnectionId, DateTimeOffset.UtcNow);
+        await Clients.Group(group).SendAsync("presentation-started",
+            PresentationSignal.From(lease), Context.ConnectionAborted);
+        return PresentationReservationResponse.AcquiredBy(lease);
+    }
+
+    public async Task ReleasePresentation()
+    {
+        var participant = await RequireParticipantAsync();
+        if (await presentation.ReleaseAsync(participant.Actor.OrganizationId, participant.Session.Id,
+                participant.Actor.UserId, Context.ConnectionId, Context.ConnectionAborted))
+        {
+            await Clients.Group(Group(participant.Actor.OrganizationId, participant.Session.Id))
+                .SendAsync("presentation-stopped",
+                    new PresentationStoppedSignal(participant.Actor.UserId, DateTimeOffset.UtcNow),
+                    Context.ConnectionAborted);
+        }
+    }
+
+    public async Task RefreshPresentation()
+    {
+        var participant = await RequireParticipantAsync();
+        await presentation.RefreshAsync(participant.Actor.OrganizationId, participant.Session.Id,
+            participant.Actor.UserId, Context.ConnectionId, Context.ConnectionAborted);
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
@@ -427,8 +726,15 @@ public sealed class LiveSessionHub(
             AuthenticatedActor.TryCreate(principal, out var actor))
         {
             var leftAt = DateTimeOffset.UtcNow;
+            var stoppedPresentation = await presentation.ReleaseAsync(actor!.OrganizationId, sessionId,
+                actor.UserId, Context.ConnectionId);
             var wasLastConnection = await presence.RemoveAsync(actor!.OrganizationId, sessionId, actor.UserId,
                 connectionId: Context.ConnectionId);
+            if (stoppedPresentation)
+            {
+                await Clients.Group(Group(actor.OrganizationId, sessionId)).SendAsync("presentation-stopped",
+                    new PresentationStoppedSignal(actor.UserId, leftAt), CancellationToken.None);
+            }
             await AttendanceMessagePublisher.PublishParticipantLeftAsync(messageBus, logger,
                 actor.OrganizationId, sessionId, actor.UserId, leftAt, Context.ConnectionId);
             if (wasLastConnection)
@@ -469,6 +775,39 @@ public sealed class LiveSessionHub(
         return false;
     }
 
+    private async Task<(AuthenticatedActor Actor, LiveSession Session)> RequireParticipantAsync()
+    {
+        if (!TryGetSessionId(out var sessionId) || Context.User is null ||
+            !AuthenticatedActor.TryCreate(Context.User, out var actor))
+        {
+            Context.Abort();
+            throw new HubException("Authentication is required.");
+        }
+
+        var liveSession = await snapshotCache.GetAsync(actor!.OrganizationId, sessionId,
+            async _ =>
+            {
+                await using var session = store.QuerySession(actor.OrganizationId.ToString("D"));
+                return await session.LoadAsync<LiveSession>(sessionId);
+            }, Context.ConnectionAborted);
+        if (liveSession is null || liveSession.Status != LiveSessionStatus.Started ||
+            !await CanJoinAsync(actor, liveSession) || await IsBlockedAsync(actor, liveSession))
+        {
+            Context.Abort();
+            throw new HubException("The live session is no longer available.");
+        }
+
+        return (actor, liveSession);
+    }
+
+    private static void RequireSignalPayload(Guid targetUserId, string sdp, int maxLength)
+    {
+        if (targetUserId == Guid.Empty || string.IsNullOrWhiteSpace(sdp) || sdp.Length > maxLength)
+        {
+            throw new HubException("Invalid media signaling payload.");
+        }
+    }
+
     public static string Group(Guid organizationId, Guid sessionId) =>
         $"tenant:{organizationId:D}:live-session:{sessionId:D}";
 
@@ -476,18 +815,39 @@ public sealed class LiveSessionHub(
     {
         return await LiveSessionAuthorization.CanJoinAsync(actor, liveSession, academics);
     }
+
+    private async Task<bool> IsBlockedAsync(AuthenticatedActor actor, LiveSession liveSession)
+    {
+        var moderation = await LoadModerationAsync(actor.OrganizationId, liveSession.Id, actor.UserId);
+        return moderation?.IsBlocked == true;
+    }
+
+    private async Task<LiveSessionParticipantModeration?> LoadModerationAsync(
+        Guid organizationId, Guid sessionId, Guid studentId)
+    {
+        await using var session = store.QuerySession(organizationId.ToString("D"));
+        return await session.LoadAsync<LiveSessionParticipantModeration>(
+            ClassroomConstants.ModerationId(sessionId, studentId), Context.ConnectionAborted);
+    }
 }
 
-public sealed record CreateLiveSessionRequest(Guid? ClassScheduleId, Guid? TeacherId);
+public sealed record CreateLiveSessionRequest(Guid? ClassScheduleId, Guid? TeacherId,
+    int? LateAfterMinutes);
 
 public sealed record LiveSessionResponse(Guid Id, Guid LearningClassId, Guid? ClassScheduleId,
     Guid TeacherId, LiveSessionStatus Status, DateTimeOffset? StartedAt, DateTimeOffset? EndedAt,
-    string MediaRoomId)
+    int LateAfterMinutes, string MediaRoomId)
 {
     public static LiveSessionResponse From(LiveSession liveSession) => new(liveSession.Id,
         liveSession.LearningClassId, liveSession.ClassScheduleId, liveSession.TeacherId,
-        liveSession.Status, liveSession.StartedAt, liveSession.EndedAt, liveSession.MediaRoomId);
+        liveSession.Status, liveSession.StartedAt, liveSession.EndedAt,
+        liveSession.LateAfterMinutes, liveSession.MediaRoomId);
 }
+
+public sealed record LiveSessionStartedSignal(Guid SessionId, DateTimeOffset StartedAt);
+
+public sealed record LiveSessionStateSignal(Guid SessionId, LiveSessionStatus Status,
+    DateTimeOffset? StartedAt, DateTimeOffset? EndedAt);
 
 public sealed record MediaAccessResponse(string ServerUrl, string RoomId, string AccessToken);
 
@@ -495,3 +855,44 @@ public sealed record LiveSessionJoinResponse(LiveSessionResponse Session, MediaA
     bool PresenceRegistered);
 
 public sealed record PresenceDelta(Guid UserId, DateTimeOffset At);
+
+public sealed record PresenceParticipant(Guid UserId, string DisplayName, DateTimeOffset At);
+
+public sealed record ModerationSignal(Guid TargetUserId, string Action, DateTimeOffset At);
+
+public sealed record PresentationSignal(Guid PresenterId, bool PresenterIsTeacher, DateTimeOffset StartedAt)
+{
+    public static PresentationSignal From(LivePresentationLease lease) =>
+        new(lease.UserId, lease.IsTeacher, lease.StartedAt);
+}
+
+public sealed record PresentationReplacementSignal(
+    Guid PreviousPresenterId,
+    Guid PresenterId,
+    bool PresenterIsTeacher,
+    DateTimeOffset At);
+
+public sealed record PresentationStoppedSignal(Guid PresenterId, DateTimeOffset At);
+
+public sealed record LiveSessionEndedSignal(Guid SessionId, DateTimeOffset EndedAt);
+
+public sealed record PresentationReservationResponse(
+    bool Acquired,
+    Guid? PresenterId,
+    bool PresenterIsTeacher)
+{
+    public static PresentationReservationResponse Busy(LivePresentationLease? lease) =>
+        new(false, lease?.UserId, lease?.IsTeacher ?? false);
+
+    public static PresentationReservationResponse AcquiredBy(LivePresentationLease lease) =>
+        new(true, lease.UserId, lease.IsTeacher);
+}
+
+public sealed record MediaOfferSignal(Guid FromUserId, Guid ToUserId, string Sdp);
+
+public sealed record MediaAnswerSignal(Guid FromUserId, Guid ToUserId, string Sdp);
+
+public sealed record MediaIceCandidateRequest(string Candidate, string? SdpMid, int? SdpMLineIndex);
+
+public sealed record MediaIceCandidateSignal(Guid FromUserId, Guid ToUserId, string Candidate,
+    string? SdpMid, int? SdpMLineIndex);

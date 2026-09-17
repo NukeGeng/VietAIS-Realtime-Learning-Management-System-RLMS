@@ -3,7 +3,7 @@
     <section class="login-hero">
       <div class="hero-brand"><span class="brand-mark">R</span><span>RLMS</span></div>
       <div class="hero-copy">
-        <span class="eyebrow">REALTIME LEARNING MANAGEMENT SYSTEM</span>
+        <span class="eyebrow">HỆ THỐNG QUẢN LÝ HỌC TẬP TRỰC TUYẾN</span>
         <h1>Học tập rõ ràng.<br />Tiến bộ theo thời gian thực.</h1>
         <p>Không gian làm việc riêng cho từng vai trò, dữ liệu học tập bền vững và lớp học trực tuyến được theo dõi đúng lúc.</p>
       </div>
@@ -11,7 +11,7 @@
     </section>
     <section class="login-panel">
       <form class="login-card" @submit.prevent="submit">
-        <span class="eyebrow">WELCOME BACK</span>
+        <span class="eyebrow">CHÀO MỪNG TRỞ LẠI</span>
         <h2>Đăng nhập</h2>
         <p>Đăng nhập vào tổ chức của bạn để tiếp tục phiên học.</p>
         <div v-if="error" class="login-error" role="alert">{{ error }}</div>
@@ -21,7 +21,7 @@
           <div class="form-field"><label for="password">Mật khẩu</label><input id="password" v-model="form.password" class="form-input" type="password" autocomplete="current-password" required placeholder="••••••••" /></div>
         </div>
         <button class="button primary login-submit" :disabled="auth.busy">{{ auth.busy ? 'Đang đăng nhập…' : 'Đăng nhập' }}</button>
-        <div class="auth-note">Backend luôn kiểm tra tổ chức, tài khoản và quyền truy cập. Frontend chỉ hiển thị workspace phù hợp.</div>
+        <div class="auth-note">Hệ thống luôn kiểm tra tổ chức, tài khoản và quyền truy cập. Giao diện chỉ hiển thị không gian làm việc phù hợp.</div>
       </form>
     </section>
   </main>

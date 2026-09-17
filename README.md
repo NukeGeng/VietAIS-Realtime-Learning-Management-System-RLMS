@@ -18,12 +18,32 @@ read model báo cáo cơ bản.
 Frontend web đã có trong `frontend/`, dùng Vue 3, Vite, Pinia, Vue Router và SignalR.
 Các workspace Student/Teacher/Admin, opened tabs, live classroom, activity
 autosave, overview/detail on-demand, essay validation flow và gradebook đều gọi
-API tenant-scoped hiện tại. Media payload đi qua SFU bên ngoài; AI essay review/RAG, payment, certificate và full
+API tenant-scoped hiện tại. Trong live classroom, SignalR chỉ relay signaling còn
+audio/video đi trực tiếp qua WebRTC; không có media payload nào đi qua Business API.
+Media:ServerUrl và access token vẫn giữ boundary để bổ sung SFU adapter ở môi
+trường triển khai cần scale nhiều người tham gia. AI essay review/RAG, payment, certificate và full
 microservices migration vẫn nằm ngoài scope GOAL.
 
 ## Chạy local
 
 Yêu cầu .NET SDK theo `global.json`, Python 3 và Docker Compose.
+
+Từ thư mục gốc của repository, chạy toàn bộ hạ tầng, backend và frontend bằng một
+lệnh:
+
+```bash
+./run-dev.sh
+```
+
+Script tự tạo cấu hình local nếu cần, khởi động PostgreSQL/Redis/MinIO, chờ API
+healthy rồi chạy Vite frontend. Nhấn `Ctrl+C` để dừng backend và frontend. Nếu
+chưa trust development certificate, chạy một lần:
+
+```bash
+dotnet dev-certs https --trust
+```
+
+Các lệnh riêng lẻ vẫn có thể dùng khi cần debug từng thành phần:
 
 ```bash
 python3 scripts/setup-local.py
@@ -33,7 +53,7 @@ bash scripts/test.sh
 dotnet run --project backend/src/Api --launch-profile https
 ```
 
-Chạy frontend ở terminal khác khi API đang lắng nghe tại `http://localhost:5164`:
+Chạy frontend ở terminal khác khi API đang lắng nghe tại `https://localhost:7041`:
 
 ```bash
 cd frontend
@@ -72,8 +92,21 @@ Lệnh thứ hai tạm dừng Redis/MinIO của riêng RLMS, kiểm tra core hea
 lại chúng. Chỉ chạy trong môi trường local không có người dùng khác đang học.
 
 PostgreSQL: localhost:55432; Redis: localhost:56379; S3: localhost:59000;
-MinIO console: localhost:59001. Media endpoint là boundary tới SFU bên ngoài;
-local compose chưa chạy SFU thật.
+MinIO console: localhost:59001. Local compose chưa chạy SFU thật; live classroom
+dùng WebRTC peer connections cho phiên thử nghiệm cục bộ.
+
+Để tạo bộ dữ liệu demo thực tế cho tenant riêng `RLMS-DEMO`, chạy sau khi API đã
+healthy:
+
+```bash
+RLMS_DEMO_DATA=1 python3 scripts/setup-demo-data.py
+```
+
+Runner chỉ gọi các HTTP API nghiệp vụ trên host local, tự đăng nhập bằng tài
+khoản admin/teacher/student, kiểm tra permission và publication rules, và có thể
+chạy lại an toàn. Tài khoản, route và số liệu đã tạo được ghi trong
+[`docs/reference/DEMO_ACCOUNTS.md`](docs/reference/DEMO_ACCOUNTS.md). Dữ liệu
+`RLMS-LOCAL` hiện có không bị thay đổi.
 
 ## Tài liệu
 
@@ -100,3 +133,6 @@ Nguyên tắc quan trọng nhất:
 - **GIT_RULES.md**: feature branch và Draft PR về `develop`.
 - **docs/architecture/foundation.md**: quyết định và verification cho Foundation và Identity.
 - **docs/architecture/multi-tenancy.md**: quyết định database, tenant isolation và placement strategy.
+- **docs/reference/**: tài khoản demo và quy tắc tham chiếu UI.
+- **docs/audits/**: các báo cáo audit môi trường và kiến trúc.
+- **docs/README.md**: mục lục tài liệu theo nhóm.

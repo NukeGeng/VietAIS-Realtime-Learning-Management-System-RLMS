@@ -28,6 +28,15 @@ public static class AcademicEndpoints
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
         endpoints.MapPost("/api/academics/courses/{courseId:guid}/archive", ArchiveCourseAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
+        endpoints.MapGet("/api/academics/courses/{courseId:guid}/curriculums",
+                ListCurriculumsAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ReadCourses);
+        endpoints.MapPost("/api/academics/courses/{courseId:guid}/curriculums",
+                CreateCurriculumAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
+        endpoints.MapPost("/api/academics/curriculums/{curriculumId:guid}/publish",
+                PublishCurriculumAsync)
+            .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
         endpoints.MapPost("/api/academics/courses/{courseId:guid}/modules", CreateModuleAsync)
             .RequireAuthorization(IdentityAuthorizationPolicies.ManageCourses);
         endpoints.MapPut("/api/academics/courses/{courseId:guid}/modules/{moduleId:guid}",
@@ -122,7 +131,7 @@ public static class AcademicEndpoints
         }
 
         var course = await session.LoadAsync<Course>(courseId, cancellationToken);
-        if (course is null)
+        if (course is null || course.OrganizationId != actor!.OrganizationId)
         {
             return Results.NotFound();
         }
@@ -447,6 +456,98 @@ public static class AcademicEndpoints
         return Results.Ok(LessonResponse.From(lesson));
     }
 
+    private static async Task<IResult> ListCurriculumsAsync(
+        Guid courseId, HttpContext context, IQuerySession session,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+            return Results.Forbid();
+
+        var course = await session.LoadAsync<Course>(courseId, cancellationToken);
+        if (course is null || course.OrganizationId != actor!.OrganizationId)
+            return Results.NotFound();
+
+        var canManage = AcademicAuthorization.CanManageCourse(actor, course);
+        if (!canManage && course.Status != CourseStatus.Published)
+            return Results.Forbid();
+
+        var curriculums = await session.Query<Curriculum>()
+            .Where(value => value.OrganizationId == actor.OrganizationId &&
+                value.CourseId == courseId &&
+                (canManage || value.Status == AcademicContentStatus.Published))
+            .OrderBy(value => value.Title)
+            .ToListAsync(cancellationToken);
+        return Results.Ok(curriculums.Select(CurriculumResponse.From));
+    }
+
+    private static async Task<IResult> CreateCurriculumAsync(
+        Guid courseId, CreateCurriculumRequest request, HttpContext context,
+        IDocumentSession session, CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+            return Results.Forbid();
+
+        var course = await session.LoadAsync<Course>(courseId, cancellationToken);
+        if (course is null || course.OrganizationId != actor!.OrganizationId)
+            return Results.NotFound();
+        if (!AcademicAuthorization.CanManageCourse(actor, course))
+            return Results.Forbid();
+        if (course.Status == CourseStatus.Archived)
+            return Results.Conflict(new { error = "An archived course cannot receive a curriculum." });
+
+        try
+        {
+            var title = AcademicRules.RequireTitle(request.Title);
+            var description = AcademicRules.RequireDescription(request.Description);
+            var existing = await session.Query<Curriculum>().AnyAsync(value =>
+                value.OrganizationId == actor.OrganizationId && value.CourseId == courseId &&
+                value.Title == title && value.Status != AcademicContentStatus.Archived,
+                cancellationToken);
+            if (existing)
+                return Results.Conflict(new { error = "A curriculum with that title already exists." });
+
+            var now = DateTimeOffset.UtcNow;
+            var curriculum = new Curriculum
+            {
+                Id = Guid.NewGuid(), OrganizationId = actor.OrganizationId,
+                CourseId = courseId, Title = title, Description = description,
+                Status = AcademicContentStatus.Draft, CreatedBy = actor.UserId,
+                CreatedAt = now, UpdatedAt = now
+            };
+            session.Insert(curriculum);
+            await session.SaveChangesAsync(cancellationToken);
+            return Results.Created($"/api/academics/curriculums/{curriculum.Id:D}",
+                CurriculumResponse.From(curriculum));
+        }
+        catch (AcademicValidationException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+    }
+
+    private static async Task<IResult> PublishCurriculumAsync(
+        Guid curriculumId, HttpContext context, IDocumentSession session,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedActor.TryCreate(context.User, out var actor))
+            return Results.Forbid();
+
+        var curriculum = await session.LoadAsync<Curriculum>(curriculumId, cancellationToken);
+        if (curriculum is null || curriculum.OrganizationId != actor!.OrganizationId)
+            return Results.NotFound();
+        var course = await session.LoadAsync<Course>(curriculum.CourseId, cancellationToken);
+        if (course is null || !AcademicAuthorization.CanManageCourse(actor, course))
+            return Results.Forbid();
+        if (curriculum.Status == AcademicContentStatus.Archived)
+            return Results.Conflict(new { error = "An archived curriculum cannot be published." });
+
+        curriculum.Status = AcademicContentStatus.Published;
+        curriculum.UpdatedAt = DateTimeOffset.UtcNow;
+        session.Update(curriculum);
+        await session.SaveChangesAsync(cancellationToken);
+        return Results.Ok(CurriculumResponse.From(curriculum));
+    }
+
     private static async Task PublishCourseContentReportingRefreshAsync(IMessageBus messageBus,
         ILoggerFactory loggerFactory, Course course)
     {
@@ -704,6 +805,8 @@ public sealed record CreateLessonRequest(string Title, int Order, string? Conten
 public sealed record UpdateModuleRequest(string Title, int Order);
 public sealed record UpdateLessonRequest(string Title, int Order, string? ContentSummary);
 
+public sealed record CreateCurriculumRequest(string Title, string? Description);
+
 public sealed record CourseResponse(
     Guid Id, string Code, string Title, string Description, CourseStatus Status,
     Guid CreatedBy, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)
@@ -724,6 +827,14 @@ public sealed record LessonResponse(Guid Id, Guid CourseId, Guid CourseModuleId,
 {
     public static LessonResponse From(Lesson lesson) => new(lesson.Id, lesson.CourseId,
         lesson.CourseModuleId, lesson.Title, lesson.Order, lesson.ContentSummary, lesson.Status);
+}
+
+public sealed record CurriculumResponse(Guid Id, Guid CourseId, string Title, string Description,
+    AcademicContentStatus Status, Guid CreatedBy, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)
+{
+    public static CurriculumResponse From(Curriculum curriculum) => new(curriculum.Id,
+        curriculum.CourseId, curriculum.Title, curriculum.Description, curriculum.Status,
+        curriculum.CreatedBy, curriculum.CreatedAt, curriculum.UpdatedAt);
 }
 
 public sealed record CourseDetailResponse(CourseResponse Course, IReadOnlyList<ModuleResponse> Modules,

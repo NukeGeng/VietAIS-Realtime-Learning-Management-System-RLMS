@@ -115,6 +115,7 @@ app.MapReportingEndpoints();
 app.MapHub<AssessmentRealtimeHub>("/hubs/assessment")
     .RequireAuthorization(IdentityAuthorizationPolicies.SubmitAssessmentActivities);
 app.MapLiveSessionEndpoints();
+app.MapLiveSessionModerationEndpoints();
 app.MapAttendanceEndpoints();
 app.MapRaiseHandEndpoints();
 app.MapChatEndpoints();

@@ -38,6 +38,7 @@ public static class ActivityProjectionHandler
                 LearningClassId = state.LearningClassId,
                 LiveSessionId = state.LiveSessionId,
                 CurrentQuestionId = state.CurrentQuestionId,
+                QuestionOrder = state.QuestionOrder?.ToArray() ?? [],
                 Status = state.Status,
                 Answers = new Dictionary<Guid, string>(state.Answers),
                 HelpRequested = state.HelpRequested,
@@ -129,21 +130,30 @@ public static class ActivityProjectionHandler
         }
         await session.SaveChangesAsync(cancellationToken);
 
-        if (!overviewChanged)
+        if (!overviewChanged && !detailNeedsUpdate)
         {
             return;
         }
 
-        var overviewDelta = new ActivityOverviewDelta(state.StudentId, state.AttemptId,
-            state.CurrentQuestionId, state.AnsweredCount, totalQuestions, progress, state.Status,
-            state.LastActivityAt, state.Version, state.AttemptNumber,
-            overview.QuestionProgress.OrderBy(value => value.QuestionId)
-                .Select(value => new ActivityQuestionProgressDelta(value.QuestionId,
-                    value.AnsweredStudentCount, value.CurrentStudentCount)).ToArray());
-        var questionId = message.QuestionId;
-        var detailDelta = new ActivityDetailDelta(state.AttemptId, state.Version, message.ChangeType,
-            questionId, message.AnswerValue, state.CurrentQuestionId, state.AnsweredCount,
-            state.Status, state.LastActivityAt, state.HelpRequested);
+        ActivityOverviewDelta? overviewDelta = null;
+        if (overviewChanged)
+        {
+            overviewDelta = new ActivityOverviewDelta(state.StudentId, state.AttemptId,
+                state.CurrentQuestionId, state.AnsweredCount, totalQuestions, progress, state.Status,
+                state.LastActivityAt, state.Version, state.AttemptNumber,
+                overview.QuestionProgress.OrderBy(value => value.QuestionId)
+                    .Select(value => new ActivityQuestionProgressDelta(value.QuestionId,
+                        value.AnsweredStudentCount, value.CurrentStudentCount)).ToArray());
+        }
+
+        ActivityDetailDelta? detailDelta = null;
+        if (detailNeedsUpdate)
+        {
+            detailDelta = new ActivityDetailDelta(state.AttemptId, state.Version, message.ChangeType,
+                message.QuestionId, message.AnswerValue, state.CurrentQuestionId, state.AnsweredCount,
+                state.Status, state.LastActivityAt, state.HelpRequested);
+        }
+
         await notifier.NotifyAsync(message.OrganizationId, state.LearningClassId, state.ActivityId,
             state.AttemptId, overviewDelta, detailDelta, cancellationToken);
     }

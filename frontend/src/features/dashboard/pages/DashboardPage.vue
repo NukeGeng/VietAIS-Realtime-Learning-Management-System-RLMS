@@ -14,7 +14,7 @@
       <section class="panel">
         <div class="panel-heading"><h2>{{ auth.role === 'student' ? 'Buổi học tiếp theo' : 'Lớp học cần chú ý' }}</h2><span>{{ nextSchedule ? formatDateTime(nextSchedule.startsAt) : 'Chưa có lịch' }}</span></div>
         <div v-if="nextSchedule" class="next-session">
-          <div><span class="eyebrow">NEXT SESSION</span><h3>{{ className(nextSchedule.learningClassId) }}</h3><p>{{ formatDateTime(nextSchedule.startsAt) }} · {{ formatDateTime(nextSchedule.endsAt) }}</p></div>
+          <div><span class="eyebrow">BUỔI HỌC TIẾP THEO</span><h3>{{ className(nextSchedule.learningClassId) }}</h3><p>{{ formatDateTime(nextSchedule.startsAt) }} · {{ formatDateTime(nextSchedule.endsAt) }}</p></div>
           <RouterLink class="button primary" :to="`/classes/${nextSchedule.learningClassId}`">Mở lớp học</RouterLink>
         </div>
         <div v-else class="empty-state"><strong>Chưa có buổi học sắp tới</strong><span>Lịch học sẽ hiển thị khi tổ chức phân công buổi học.</span></div>
@@ -57,7 +57,7 @@ const activities = ref<AssessmentActivity[]>([])
 const notifications = ref<Notification[]>([])
 const error = ref('')
 const loading = ref(false)
-const roleLabel = computed(() => auth.role === 'student' ? 'STUDENT WORKSPACE' : auth.role === 'teacher' ? 'TEACHER WORKSPACE' : 'ADMIN WORKSPACE')
+const roleLabel = computed(() => auth.role === 'student' ? 'KHÔNG GIAN SINH VIÊN' : auth.role === 'teacher' ? 'KHÔNG GIAN GIẢNG VIÊN' : 'KHÔNG GIAN QUẢN TRỊ')
 const greeting = computed(() => `Xin chào, ${auth.account?.displayName || 'bạn'}`)
 const description = computed(() => auth.role === 'student' ? 'Tập trung vào buổi học tiếp theo, bài cần nộp và tiến độ của bạn.' : 'Nắm nhanh các lớp, lịch và tín hiệu vận hành trong tổ chức.')
 const primaryRoute = computed(() => auth.role === 'student' ? '/activities' : auth.role === 'admin' ? '/admin/users' : '/classes')

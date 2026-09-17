@@ -18,6 +18,12 @@ public sealed class LiveSession
     public LiveSessionStatus Status { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
+    /// <summary>
+    /// Number of minutes after the scheduled/start time before a join is late.
+    /// This belongs to the live-session occurrence so changing a later session
+    /// does not rewrite attendance semantics for an older one.
+    /// </summary>
+    public int LateAfterMinutes { get; set; } = 15;
     public string MediaRoomId { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
@@ -29,6 +35,13 @@ public enum AttendanceStatus
     Late,
     Absent,
     Excused
+}
+
+public sealed class AttendanceSegment
+{
+    public DateTimeOffset JoinedAt { get; set; }
+    public DateTimeOffset? LeftAt { get; set; }
+    public TimeSpan Duration { get; set; }
 }
 
 /// <summary>
@@ -54,6 +67,26 @@ public sealed class AttendanceRecord
     // Keep the connection identities with the open attendance segment so one
     // connection disappearing cannot close the segment for the others.
     public string[] ActiveConnectionIds { get; set; } = [];
+    public List<AttendanceSegment> Segments { get; set; } = [];
+    public int ReconnectCount { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// Session-scoped moderation state. It intentionally has no class-wide effect.
+/// </summary>
+public sealed class LiveSessionParticipantModeration
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid LiveSessionId { get; set; }
+    public Guid StudentId { get; set; }
+    public bool IsBlocked { get; set; }
+    public bool IsMuted { get; set; }
+    public DateTimeOffset? BlockedAt { get; set; }
+    public DateTimeOffset? MutedAt { get; set; }
+    public Guid? ChangedBy { get; set; }
+    public string? Reason { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
 

@@ -36,6 +36,22 @@
 ### Xuất bản khóa học
 // Cho phép giảng viên hoặc người quản lý đưa khóa học từ trạng thái nháp sang trạng thái có thể sử dụng.
 
+### Sinh viên xem nội dung khóa học theo lớp
+// Sinh viên mở nội dung từ `/classes/:classId/content` sau khi vào lớp. Hệ thống
+// chỉ trả về Course, module và lesson đã xuất bản mà sinh viên được phép xem;
+// module/lesson được sắp xếp theo Order và trạng thái được lấy từ tiến độ bài học
+// của chính sinh viên.
+
+### Xem chi tiết bài học theo yêu cầu
+// Khi sinh viên mở một lesson, hệ thống tải riêng nội dung, video và metadata tài
+// nguyên đã xuất bản của lesson đó, không tải toàn bộ nội dung chi tiết trong
+// danh sách module ban đầu.
+
+### Ghi nhận tiến độ bài học
+// Mở bài tạo trạng thái Đang học khi chưa có tiến độ; sinh viên có thể đánh dấu
+// hoàn thành. Tiến độ khóa học được tính từ số lesson đã hoàn thành trên tổng số
+// lesson đã xuất bản và không cho phép lùi từ Đã hoàn thành về Đang học.
+
 ---
 
 ## 3. Quản lý Lớp học
@@ -84,6 +100,9 @@
 ### Tạo phòng học trực tuyến
 // Tạo không gian học trực tuyến cho một buổi học đã được lên lịch hoặc được mở trực tiếp bởi giảng viên.
 
+### Mở lại phòng học trực tuyến đang hoạt động
+// Liệt kê các phiên chưa kết thúc để giảng viên hoặc học viên có thể quay lại đúng phòng học.
+
 ### Bắt đầu buổi học
 // Cho phép giảng viên bắt đầu một phiên học trực tuyến.
 
@@ -104,6 +123,7 @@
 
 ### Chia sẻ màn hình
 // Cho phép giảng viên hoặc người được cấp quyền chia sẻ màn hình trong buổi học.
+// Mỗi phiên chỉ có một presenter; học viên phải chờ khi đang có người trình bày và giảng viên có thể tiếp quản sau khi xác nhận.
 
 ### Trò chuyện trong lớp
 // Cho phép người tham gia gửi tin nhắn trong thời gian buổi học đang diễn ra.
@@ -113,6 +133,9 @@
 
 ### Quản lý trạng thái hiện diện
 // Theo dõi người dùng đang online, đã rời lớp hoặc mất kết nối trong buổi học.
+
+### Điều khiển người tham gia theo phiên
+// Giáo viên có thể kick, chặn hoặc tắt mic của một học viên trong đúng phiên live hiện tại.
 
 ---
 
@@ -125,7 +148,10 @@
 // Theo dõi thời gian học viên tham gia và rời khỏi từng buổi học.
 
 ### Ghi nhận đi muộn
-// Xác định học viên tham gia sau thời điểm bắt đầu buổi học.
+// Xác định học viên tham gia sau ngưỡng đi muộn được cấu hình cho phiên học.
+
+### Lịch sử reconnect
+// Lưu từng lần vào/rời, thời lượng đã học, khoảng gián đoạn và số lần vào lại trong phiên.
 
 ### Ghi nhận vắng mặt
 // Đánh dấu học viên không tham gia buổi học theo lịch.
@@ -416,6 +442,7 @@
 
 ### Báo cáo chuyên cần
 // Tổng hợp tình trạng có mặt, vắng mặt, đi trễ và thời lượng tham gia của học viên.
+// Teacher có thể xem bảng theo từng lớp/phiên, gồm lịch sử reconnect và xuất dữ liệu hàng/cột ra Excel.
 
 ---
 

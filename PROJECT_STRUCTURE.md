@@ -840,6 +840,8 @@ Không thêm Kubernetes/service mesh trong GOAL hiện tại.
 ```text
 docs/
 ├── architecture/
+├── audits/
+├── reference/
 ├── modules/
 └── adr/
 ```

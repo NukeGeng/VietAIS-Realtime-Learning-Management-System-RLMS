@@ -1,11 +1,8 @@
 <template>
   <div>
-    <PageHeader eyebrow="ACADEMICS" title="Khóa học" description="Quản lý nội dung khóa học và trạng thái phát hành trong tổ chức.">
-      <template #actions><button v-if="canManage" class="button primary" @click="showForm = !showForm">{{ showForm ? 'Đóng biểu mẫu' : 'Tạo khóa học' }}</button></template>
-    </PageHeader>
     <div v-if="error" class="error-banner"><span>{{ error }}</span><button class="mini-button" @click="load">Thử lại</button></div>
-    <section v-if="showForm" class="panel" style="margin-bottom:16px"><form class="inline-form" @submit.prevent="create"><div class="form-field"><label>Mã khóa học</label><input v-model.trim="form.code" class="form-input" required placeholder="SE101" /></div><div class="form-field"><label>Tên khóa học</label><input v-model.trim="form.title" class="form-input" required placeholder="Software Engineering" /></div><div class="form-field"><label>Mô tả</label><input v-model.trim="form.description" class="form-input" placeholder="Mô tả ngắn" /></div><button class="button primary" :disabled="busy">Lưu</button></form></section>
-    <div class="toolbar"><input v-model="query" class="search-input" placeholder="Tìm theo mã hoặc tên khóa học…" /><span class="cell-subtle">{{ filtered.length }} khóa học</span></div>
+    <section v-if="showForm" class="panel" style="margin-bottom:16px"><form class="inline-form" @submit.prevent="create"><div class="form-field"><label>Mã khóa học</label><input v-model.trim="form.code" class="form-input" required placeholder="SE101" /></div><div class="form-field"><label>Tên khóa học</label><input v-model.trim="form.title" class="form-input" required placeholder="Kỹ thuật phần mềm" /></div><div class="form-field"><label>Mô tả</label><input v-model.trim="form.description" class="form-input" placeholder="Mô tả ngắn" /></div><button class="button primary" :disabled="busy">Lưu</button></form></section>
+    <div class="toolbar page-toolbar"><input v-model="query" class="search-input" placeholder="Tìm theo mã hoặc tên khóa học…" /><div class="toolbar-actions"><span class="cell-subtle">{{ filtered.length }} khóa học</span><button v-if="canManage" class="button primary" @click="showForm = !showForm">{{ showForm ? 'Đóng biểu mẫu' : 'Tạo khóa học' }}</button></div></div>
     <div v-if="loading" class="loading-state">Đang tải khóa học…</div>
     <div v-else-if="filtered.length" class="cards-grid">
       <article v-for="course in filtered" :key="course.id" class="course-card"><div class="card-topline"><span class="code-label">{{ course.code }}</span><StatusPill :value="course.status" /></div><h3>{{ course.title }}</h3><p>{{ course.description || 'Chưa có mô tả cho khóa học này.' }}</p><div class="card-footer"><span class="card-meta">{{ course.createdAt ? formatDate(course.createdAt) : '—' }}</span><div class="card-actions"><RouterLink class="mini-button" :to="`/courses/${course.id}`">Chi tiết</RouterLink><button v-if="canManage && isCourseDraft(course.status)" class="mini-button" @click="publish(course.id)">Phát hành</button><button v-if="canManage && isCoursePublished(course.status)" class="mini-button" @click="archive(course.id)">Lưu trữ</button></div></div></article>
@@ -16,7 +13,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import PageHeader from '../../../shared/ui/PageHeader.vue'
 import StatusPill from '../../../shared/ui/StatusPill.vue'
 import { academicsApi } from '../../../shared/api/client'
 import { useAuthStore } from '../../../shared/stores/auth'

@@ -19,6 +19,153 @@ public sealed class LearningAndCommunicationTests(FoundationFixture fixture)
     : IClassFixture<FoundationFixture>
 {
     [Fact]
+    public async Task Enrolled_student_course_content_is_published_ordered_and_progress_aware()
+    {
+        using var administrator = fixture.Client();
+        FoundationFixture.SetCookies(administrator, await fixture.LoginCookieAsync());
+        var (learningClass, firstLesson) = await CreateClassWithLessonAsync(administrator);
+
+        using var moduleResponse = await PostWithCsrfAsync(administrator,
+            $"/api/academics/courses/{learningClass.CourseId:D}/modules", new
+            {
+                Title = "Advanced",
+                Order = 1
+            });
+        moduleResponse.EnsureSuccessStatusCode();
+        var secondModule = (await moduleResponse.Content.ReadFromJsonAsync<ModuleResponse>())!;
+        using var firstLessonResponse = await PostWithCsrfAsync(administrator,
+            $"/api/academics/courses/{learningClass.CourseId:D}/modules/{secondModule.Id:D}/lessons",
+            new
+            {
+                Title = "First advanced lesson",
+                Order = 0,
+                ContentSummary = "First advanced lesson content"
+            });
+        firstLessonResponse.EnsureSuccessStatusCode();
+        var firstAdvancedLesson = (await firstLessonResponse.Content.ReadFromJsonAsync<LessonResponse>())!;
+        using var lessonResponse = await PostWithCsrfAsync(administrator,
+            $"/api/academics/courses/{learningClass.CourseId:D}/modules/{secondModule.Id:D}/lessons",
+            new
+            {
+                Title = "Second lesson",
+                Order = 1,
+                ContentSummary = "Second lesson content"
+            });
+        lessonResponse.EnsureSuccessStatusCode();
+        var secondLesson = (await lessonResponse.Content.ReadFromJsonAsync<LessonResponse>())!;
+        using var publishModule = await PostWithCsrfAsync(administrator,
+            $"/api/academics/courses/{learningClass.CourseId:D}/modules/{secondModule.Id:D}/publish",
+            new { });
+        publishModule.EnsureSuccessStatusCode();
+        using var publishFirstLesson = await PostWithCsrfAsync(administrator,
+            $"/api/academics/courses/{learningClass.CourseId:D}/modules/{secondModule.Id:D}/lessons/{firstAdvancedLesson.Id:D}/publish",
+            new { });
+        publishFirstLesson.EnsureSuccessStatusCode();
+        using var publishLesson = await PostWithCsrfAsync(administrator,
+            $"/api/academics/courses/{learningClass.CourseId:D}/modules/{secondModule.Id:D}/lessons/{secondLesson.Id:D}/publish",
+            new { });
+        publishLesson.EnsureSuccessStatusCode();
+
+        using var draftModuleResponse = await PostWithCsrfAsync(administrator,
+            $"/api/academics/courses/{learningClass.CourseId:D}/modules", new
+            {
+                Title = "Draft module",
+                Order = 2
+            });
+        draftModuleResponse.EnsureSuccessStatusCode();
+        var draftModule = (await draftModuleResponse.Content.ReadFromJsonAsync<ModuleResponse>())!;
+        using var draftLessonResponse = await PostWithCsrfAsync(administrator,
+            $"/api/academics/courses/{learningClass.CourseId:D}/modules/{draftModule.Id:D}/lessons",
+            new
+            {
+                Title = "Draft lesson",
+                Order = 0,
+                ContentSummary = "Should stay hidden"
+            });
+        draftLessonResponse.EnsureSuccessStatusCode();
+        var draftLesson = (await draftLessonResponse.Content.ReadFromJsonAsync<LessonResponse>())!;
+
+        var studentEmail = $"course-content-student-{Guid.NewGuid():N}@rlms.test";
+        var student = await fixture.CreateTestAccountAsync(studentEmail, "course content password", "STUDENT");
+        using var enroll = await PostWithCsrfAsync(administrator,
+            $"/api/academics/classes/{learningClass.Id:D}/enrollments", new { StudentId = student.UserId });
+        Assert.Equal(HttpStatusCode.Created, enroll.StatusCode);
+        using var studentClient = fixture.Client();
+        FoundationFixture.SetCookies(studentClient,
+            await fixture.LoginCookieAsync(studentEmail, "course content password"));
+
+        using var complete = await PostWithCsrfAsync(studentClient,
+            $"/api/learning/classes/{learningClass.Id:D}/lessons/{firstLesson.Id:D}/progress",
+            new { Status = (int)LessonProgressStatus.Completed });
+        Assert.Equal(HttpStatusCode.OK, complete.StatusCode);
+
+        var snapshot = await studentClient.GetFromJsonAsync<StudentCourseContentResponse>(
+            $"/api/learning/classes/{learningClass.Id:D}/course-content");
+        Assert.NotNull(snapshot);
+        Assert.Equal(2, snapshot!.Modules.Length);
+        Assert.Equal("Module", snapshot.Modules[0].Title);
+        Assert.Equal("Advanced", snapshot.Modules[1].Title);
+        Assert.Equal("First advanced lesson", snapshot.Modules[1].Lessons[0].Title);
+        Assert.Equal("Second lesson", snapshot.Modules[1].Lessons[1].Title);
+        Assert.Equal(3, snapshot.TotalLessons);
+        Assert.Equal(1, snapshot.CompletedLessons);
+        Assert.Equal(33.33m, snapshot.Progress);
+        Assert.DoesNotContain(snapshot.Modules.SelectMany(module => module.Lessons),
+            lesson => lesson.LessonId == draftLesson.Id);
+
+        var curriculumList = await studentClient.GetFromJsonAsync<StudentCurriculumListResponse>(
+            $"/api/learning/classes/{learningClass.Id:D}/curriculums");
+        Assert.NotNull(curriculumList);
+        var curriculum = Assert.Single(curriculumList!.Curriculums);
+        Assert.Equal(learningClass.CourseId, curriculum.CurriculumId);
+        Assert.Equal(snapshot.TotalLessons, curriculum.LessonCount);
+        var curriculumSnapshot = await studentClient.GetFromJsonAsync<StudentCurriculumContentResponse>(
+            $"/api/learning/classes/{learningClass.Id:D}/curriculums/{curriculum.CurriculumId:D}");
+        Assert.NotNull(curriculumSnapshot);
+        Assert.Equal(snapshot.TotalLessons, curriculumSnapshot!.TotalLessons);
+
+        var detail = await studentClient.GetFromJsonAsync<StudentLessonDetailResponse>(
+            $"/api/learning/classes/{learningClass.Id:D}/course-content/lessons/{secondLesson.Id:D}");
+        Assert.NotNull(detail);
+        Assert.Equal("Second lesson content", detail!.ContentSummary);
+        using var draftDetail = await studentClient.GetAsync(
+            $"/api/learning/classes/{learningClass.Id:D}/course-content/lessons/{draftLesson.Id:D}");
+        Assert.Equal(HttpStatusCode.NotFound, draftDetail.StatusCode);
+    }
+
+    [Fact]
+    public async Task Student_course_content_requires_enrollment_and_tenant_scope()
+    {
+        using var administrator = fixture.Client();
+        FoundationFixture.SetCookies(administrator, await fixture.LoginCookieAsync());
+        var (learningClass, _) = await CreateClassWithLessonAsync(administrator);
+        var studentEmail = $"course-content-outsider-{Guid.NewGuid():N}@rlms.test";
+        await fixture.CreateTestAccountAsync(studentEmail, "course content outsider password", "STUDENT");
+        using var studentClient = fixture.Client();
+        FoundationFixture.SetCookies(studentClient,
+            await fixture.LoginCookieAsync(studentEmail, "course content outsider password"));
+        using var management = await PostWithCsrfAsync(studentClient,
+            $"/api/academics/courses/{learningClass.CourseId:D}/modules", new
+            {
+                Title = "Student must not manage content",
+                Order = 99
+            });
+        Assert.Equal(HttpStatusCode.Forbidden, management.StatusCode);
+        using var notEnrolled = await studentClient.GetAsync(
+            $"/api/learning/classes/{learningClass.Id:D}/course-content");
+        Assert.Equal(HttpStatusCode.Forbidden, notEnrolled.StatusCode);
+
+        var otherOrganization = await fixture.CreateTestOrganizationAsync();
+        using var otherTenant = fixture.Client();
+        FoundationFixture.SetCookies(otherTenant,
+            await fixture.LoginCookieAsync(otherOrganization.Email, "correct horse battery staple",
+                otherOrganization.Code));
+        using var crossTenant = await otherTenant.GetAsync(
+            $"/api/learning/classes/{learningClass.Id:D}/course-content");
+        Assert.Equal(HttpStatusCode.NotFound, crossTenant.StatusCode);
+    }
+
+    [Fact]
     public async Task Student_lesson_progress_is_scoped_to_the_class_and_cannot_regress_after_completion()
     {
         using var administrator = fixture.Client();
@@ -41,6 +188,7 @@ public sealed class LearningAndCommunicationTests(FoundationFixture fixture)
             $"/api/learning/classes/{learningClass.Id:D}/course-progress/me");
         Assert.NotNull(initial);
         Assert.Equal(1, initial!.TotalLessons);
+        Assert.Equal(0, initial.CompletedLessons);
         Assert.Equal(0m, initial.CompletionPercent);
         var initialEntry = Assert.Single(initial.Entries);
         Assert.Equal(student.UserId, initialEntry.StudentId);
@@ -74,12 +222,14 @@ public sealed class LearningAndCommunicationTests(FoundationFixture fixture)
 
         var mine = await studentClient.GetFromJsonAsync<CourseProgressResponse>(
             $"/api/learning/classes/{learningClass.Id:D}/course-progress/me");
+        Assert.Equal(1, mine!.CompletedLessons);
         Assert.Equal(100m, mine!.CompletionPercent);
         Assert.Equal(LessonProgressStatus.Completed, Assert.Single(mine.Entries).Status);
 
         var teacher = await administrator.GetFromJsonAsync<CourseProgressResponse>(
             $"/api/learning/classes/{learningClass.Id:D}/course-progress");
         Assert.NotNull(teacher);
+        Assert.Equal(1, teacher!.CompletedLessons);
         Assert.Equal(100m, teacher!.CompletionPercent);
         Assert.Equal(student.UserId, Assert.Single(teacher.Entries).StudentId);
     }

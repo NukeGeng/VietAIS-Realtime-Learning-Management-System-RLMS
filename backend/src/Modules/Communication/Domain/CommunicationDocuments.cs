@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using LearningPlatform.Identity.Domain;
 
 namespace LearningPlatform.Communication.Domain;
 
@@ -56,6 +57,13 @@ public static class CommunicationConstants
         var source = sourceId?.ToString("D") ?? "none";
         return StableId($"notification:{userId:D}:{type}:{source}:{eventId:D}");
     }
+
+    /// <summary>
+    /// Stable id for one durable business transition. Retried delivery of the
+    /// same transition therefore updates the same notification document.
+    /// </summary>
+    public static Guid TransitionEventId(Guid sourceId, string type,
+        DateTimeOffset occurredAt) => NotificationEventIds.Transition(sourceId, type, occurredAt);
 
     private static Guid StableId(string value)
     {

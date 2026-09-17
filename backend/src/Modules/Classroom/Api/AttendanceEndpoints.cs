@@ -42,18 +42,25 @@ public static class AttendanceEndpoints
             return Results.NotFound();
         }
 
-        if (!await LiveSessionAuthorization.CanManageAttendanceAsync(actor!, liveSession, academics,
+        if (liveSession.OrganizationId != actor!.OrganizationId)
+        {
+            return Results.Forbid();
+        }
+
+        if (!await LiveSessionAuthorization.CanManageAttendanceAsync(actor, liveSession, academics,
                 cancellationToken))
         {
             return Results.Forbid();
         }
 
         var records = await session.Query<AttendanceRecord>()
-            .Where(record => record.LiveSessionId == sessionId)
+            .Where(record => record.OrganizationId == actor.OrganizationId &&
+                record.LiveSessionId == sessionId)
             .OrderBy(record => record.StudentId)
             .ToListAsync(cancellationToken);
         var totalStudents = await session.Query<Enrollment>()
-            .CountAsync(enrollment => enrollment.LearningClassId == liveSession.LearningClassId &&
+            .CountAsync(enrollment => enrollment.OrganizationId == actor.OrganizationId &&
+                enrollment.LearningClassId == liveSession.LearningClassId &&
                 enrollment.Status == EnrollmentStatus.Active, cancellationToken);
         return Results.Ok(AttendanceSummaryResponse.From(records, totalStudents));
     }
@@ -119,8 +126,7 @@ public static class AttendanceEndpoints
             }
             else if (record.CurrentJoinedAt is { } joinedAt && now > joinedAt)
             {
-                record.TotalDuration += now - joinedAt;
-                record.CurrentJoinedAt = null;
+                AttendanceHistory.CloseSegment(record, now);
                 record.ActiveConnectionIds = [];
                 record.LastLeftAt = now;
             }
@@ -184,11 +190,24 @@ public sealed record AttendanceRecordResponse(
     TimeSpan TotalDuration,
     AttendanceStatus Status,
     Guid? AdjustedBy,
-    string? AdjustmentReason)
+    string? AdjustmentReason,
+    int ReconnectCount,
+    IReadOnlyList<AttendanceSegmentResponse> Segments)
 {
     public static AttendanceRecordResponse From(AttendanceRecord record) => new(record.Id,
         record.LiveSessionId, record.StudentId, record.FirstJoinedAt, record.LastLeftAt,
-        record.TotalDuration, record.Status, record.AdjustedBy, record.AdjustmentReason);
+        record.TotalDuration, record.Status, record.AdjustedBy, record.AdjustmentReason,
+        record.ReconnectCount,
+        (record.Segments ?? []).Select(AttendanceSegmentResponse.From).ToArray());
+}
+
+public sealed record AttendanceSegmentResponse(
+    DateTimeOffset JoinedAt,
+    DateTimeOffset? LeftAt,
+    TimeSpan Duration)
+{
+    public static AttendanceSegmentResponse From(AttendanceSegment segment) =>
+        new(segment.JoinedAt, segment.LeftAt, segment.Duration);
 }
 
 public sealed record AttendanceSummaryResponse(

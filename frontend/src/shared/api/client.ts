@@ -2,8 +2,8 @@ import { request } from './http'
 import type {
   Account, AssessmentActivity, AttendanceSummary, ClassDetail, ClassOverview, ClassReport, Course, CourseDetail,
   EssayAssignment, EssayGroup, EssaySubmission, EssayTopic, Gradebook, LearningClass, LiveJoinResponse,
-  LiveSession, Notification, Organization, Resource, Schedule, StudentActivity, StudentDetail,
-  StudentReport
+  LiveSession, LiveSessionModeration, Notification, Organization, Resource, Schedule, StudentActivity, StudentDetail,
+  StudentCourseContent, StudentCurriculumList, StudentCurriculumContent, StudentLessonDetail, StudentReport
 } from '../types'
 
 const list = <T>(path: string, params?: Record<string, unknown>) => request<T[]>({ method: 'get', url: path, params })
@@ -54,8 +54,8 @@ export const academicsApi = {
   enrollments: (classId: string) => list<{ id: string; studentId: string; status: string | number; enrolledAt: string }>(`/api/academics/classes/${classId}/enrollments`),
   enrollStudent: (classId: string, studentId: string) => request<unknown>({ method: 'post', url: `/api/academics/classes/${classId}/enrollments`, data: { studentId } }),
   dropStudent: (classId: string, studentId: string) => request<void>({ method: 'delete', url: `/api/academics/classes/${classId}/enrollments/${studentId}` }),
-  schedules: (classId: string) => list<Schedule>(`/api/academics/classes/${classId}/schedules`),
-  mySchedules: () => list<Schedule>('/api/academics/schedules/me'),
+  schedules: (classId: string, includeHistory = false) => list<Schedule>(`/api/academics/classes/${classId}/schedules?includeHistory=${includeHistory ? 'true' : 'false'}`),
+  mySchedules: (includeHistory = false) => list<Schedule>(`/api/academics/schedules/me?includeHistory=${includeHistory ? 'true' : 'false'}`),
   createSchedule: (classId: string, body: { teacherId: string; startsAt: string; endsAt: string; recurrence?: string }) => request<Schedule>({ method: 'post', url: `/api/academics/classes/${classId}/schedules`, data: body }),
   reschedule: (classId: string, scheduleId: string, body: { startsAt: string; endsAt: string; recurrence?: string }) => request<Schedule>({ method: 'post', url: `/api/academics/classes/${classId}/schedules/${scheduleId}/reschedule`, data: body }),
   cancelSchedule: (classId: string, scheduleId: string) => request<void>({ method: 'post', url: `/api/academics/classes/${classId}/schedules/${scheduleId}/cancel` }),
@@ -64,12 +64,15 @@ export const academicsApi = {
 
 export const classroomApi = {
   session: (id: string) => request<LiveSession>({ method: 'get', url: `/api/classroom/sessions/${id}` }),
-  createSession: (classId: string, body: { classScheduleId?: string; teacherId?: string }) =>
+  sessions: (classId: string, includeEnded = false) => list<LiveSession>(
+    `/api/classroom/classes/${classId}/sessions`, includeEnded ? { includeEnded: true } : undefined),
+  createSession: (classId: string, body: { classScheduleId?: string; teacherId?: string; lateAfterMinutes?: number }) =>
     request<LiveSession>({ method: 'post', url: `/api/classroom/classes/${classId}/sessions`, data: body }),
   startSession: (id: string) => request<LiveSession>({ method: 'post', url: `/api/classroom/sessions/${id}/start` }),
   endSession: (id: string) => request<LiveSession>({ method: 'post', url: `/api/classroom/sessions/${id}/end` }),
   joinSession: (id: string) => request<LiveJoinResponse>({ method: 'post', url: `/api/classroom/sessions/${id}/join` }),
   leaveSession: (id: string) => request<void>({ method: 'post', url: `/api/classroom/sessions/${id}/leave` }),
+  reconnectSession: (id: string) => request<void>({ method: 'post', url: `/api/classroom/sessions/${id}/reconnect` }),
   attendance: (id: string) => request<AttendanceSummary>({ method: 'get', url: `/api/classroom/sessions/${id}/attendance` }),
   adjustAttendance: (sessionId: string, studentId: string, body: { status?: string; reason?: string }) => request<unknown>({ method: 'post', url: `/api/classroom/sessions/${sessionId}/attendance/${studentId}`, data: body }),
   messages: (id: string) => list<{ id: string; senderId: string; body: string; sentAt: string }>(`/api/classroom/sessions/${id}/messages`),
@@ -77,7 +80,10 @@ export const classroomApi = {
   raiseHand: (id: string) => request<unknown>({ method: 'post', url: `/api/classroom/sessions/${id}/raise-hand` }),
   lowerHand: (id: string) => request<void>({ method: 'delete', url: `/api/classroom/sessions/${id}/raise-hand` }),
   raiseHands: (id: string) => list<{ id: string; liveSessionId: string; studentId: string; status: string | number; raisedAt: string; loweredAt?: string; clearedBy?: string }>(`/api/classroom/sessions/${id}/raise-hands`),
-  clearHand: (sessionId: string, studentId: string) => request<void>({ method: 'post', url: `/api/classroom/sessions/${sessionId}/raise-hands/${studentId}/clear` })
+  clearHand: (sessionId: string, studentId: string) => request<void>({ method: 'post', url: `/api/classroom/sessions/${sessionId}/raise-hands/${studentId}/clear` }),
+  moderation: (sessionId: string) => list<LiveSessionModeration>(`/api/classroom/sessions/${sessionId}/moderation`),
+  moderate: (sessionId: string, studentId: string, action: 'mute' | 'unmute' | 'kick' | 'block' | 'unblock') =>
+    request<LiveSessionModeration>({ method: 'post', url: `/api/classroom/sessions/${sessionId}/moderation/${studentId}/${action}` })
 }
 
 export const assessmentApi = {
@@ -160,12 +166,18 @@ export const learningApi = {
   classProgress: (classId: string) => request<{ learningClassId: string; entries: unknown[] }>({ method: 'get', url: `/api/learning/classes/${classId}/progress` }),
   myProgress: (classId: string) => request<{ learningClassId: string; entries: unknown[] }>({ method: 'get', url: `/api/learning/classes/${classId}/progress/me` }),
   courseProgress: (classId: string, mine = true) => request<unknown>({ method: 'get', url: `/api/learning/classes/${classId}/course-progress${mine ? '/me' : ''}` }),
+  courseContent: (classId: string) => request<StudentCourseContent>({ method: 'get', url: `/api/learning/classes/${classId}/course-content` }),
+  lessonDetail: (classId: string, lessonId: string) => request<StudentLessonDetail>({ method: 'get', url: `/api/learning/classes/${classId}/course-content/lessons/${lessonId}` }),
+  curriculums: (classId: string) => request<StudentCurriculumList>({ method: 'get', url: `/api/learning/classes/${classId}/curriculums` }),
+  curriculumContent: (classId: string, curriculumId: string) => request<StudentCurriculumContent>({ method: 'get', url: `/api/learning/classes/${classId}/curriculums/${curriculumId}` }),
+  curriculumLessonDetail: (classId: string, curriculumId: string, lessonId: string) => request<StudentLessonDetail>({ method: 'get', url: `/api/learning/classes/${classId}/curriculums/${curriculumId}/lessons/${lessonId}` }),
   resources: (classId: string) => list<Resource>(`/api/learning/classes/${classId}/resources`),
   createResource: (classId: string, body: { lessonId?: string; liveSessionId?: string; title: string; description?: string; type: string; externalUrl?: string; durationSeconds?: number }) => request<Resource>({ method: 'post', url: `/api/learning/classes/${classId}/resources`, data: { ...body, type: resourceTypes[body.type] ?? body.type } }),
   uploadResource: (classId: string, file: File, metadata: { title: string; description?: string; type: string; lessonId?: string; liveSessionId?: string }) => { const body = new FormData(); body.append('file', file); body.append('title', metadata.title); if (metadata.description) body.append('description', metadata.description); body.append('type', String(resourceTypes[metadata.type] ?? metadata.type)); if (metadata.lessonId) body.append('lessonId', metadata.lessonId); if (metadata.liveSessionId) body.append('liveSessionId', metadata.liveSessionId); return request<Resource>({ method: 'post', url: `/api/learning/classes/${classId}/resources/upload`, data: body }) },
   publishResource: (id: string) => request<Resource>({ method: 'post', url: `/api/learning/resources/${id}/publish` }),
   archiveResource: (id: string) => request<Resource>({ method: 'post', url: `/api/learning/resources/${id}/archive` }),
-  updateLessonProgress: (classId: string, lessonId: string, status: number) => request<unknown>({ method: 'post', url: `/api/learning/classes/${classId}/lessons/${lessonId}/progress`, data: { status } })
+  updateLessonProgress: (classId: string, lessonId: string, status: number) => request<unknown>({ method: 'post', url: `/api/learning/classes/${classId}/lessons/${lessonId}/progress`, data: { status } }),
+  updateCurriculumLessonProgress: (classId: string, curriculumId: string, lessonId: string, status: number) => request<unknown>({ method: 'post', url: `/api/learning/classes/${classId}/curriculums/${curriculumId}/lessons/${lessonId}/progress`, data: { status } })
 }
 
 export const reportingApi = {

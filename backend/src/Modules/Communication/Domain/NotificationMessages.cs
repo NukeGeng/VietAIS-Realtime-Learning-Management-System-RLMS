@@ -71,7 +71,8 @@ public static class ClassNotificationRequestedHandler
 
         await using var session = store.LightweightSession(message.OrganizationId.ToString("D"));
         var studentIds = await session.Query<Enrollment>()
-            .Where(enrollment => enrollment.LearningClassId == message.LearningClassId &&
+            .Where(enrollment => enrollment.OrganizationId == message.OrganizationId &&
+                enrollment.LearningClassId == message.LearningClassId &&
                 enrollment.Status == EnrollmentStatus.Active)
             .Select(enrollment => enrollment.StudentId)
             .ToListAsync(cancellationToken);
@@ -117,7 +118,8 @@ public static class AnnouncementPublishedHandler
         }
 
         var students = await session.Query<Enrollment>()
-            .Where(enrollment => enrollment.LearningClassId == message.LearningClassId &&
+            .Where(enrollment => enrollment.OrganizationId == message.OrganizationId &&
+                enrollment.LearningClassId == message.LearningClassId &&
                 enrollment.Status == EnrollmentStatus.Active)
             .Select(enrollment => enrollment.StudentId)
             .ToListAsync(cancellationToken);

@@ -16,6 +16,7 @@ export const permissions = {
   manageEssayAssignments: 'assessment.essays.manage',
   readLearningProgress: 'learning.progress.read',
   readNotifications: 'communication.notifications.read',
+  manageAttendance: 'classroom.attendance.manage',
   readReports: 'reporting.classes.read'
 } as const
 

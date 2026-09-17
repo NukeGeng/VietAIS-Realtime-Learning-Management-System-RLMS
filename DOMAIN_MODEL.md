@@ -41,10 +41,12 @@ Organization
 ├── Users
 │
 ├── Courses
-│    ├── CourseModule
-│    └── Lesson
+│    └── Curriculum
+│         ├── CourseModule
+│         └── Lesson
 │
 └── LearningClass
+     └── ClassCurriculumAssignment
      ├── Enrollment
      ├── ClassSchedule
      ├── LiveSession
@@ -82,7 +84,7 @@ Student
 | Module | Sở hữu chính |
 |---|---|
 | Identity | Organization, User, Role, Permission |
-| Academics | Course, CourseModule, Lesson, LearningClass, Enrollment, ClassSchedule |
+| Academics | Course, Curriculum, CourseModule, Lesson, LearningClass, ClassCurriculumAssignment, Enrollment, ClassSchedule |
 | Classroom | LiveSession, StudentActivity, AttendanceRecord, HelpRequest |
 | Assessment | AssessmentActivity, QuestionBankItem, Submission, Gradebook, Essay* |
 | Learning | LearningProgress, LearningResource, learning history |
@@ -198,6 +200,11 @@ Course là aggregate/document cấp cao cho lifecycle:
 - Published;
 - Archived nếu cần.
 
+`Curriculum` là cấu trúc nội dung cụ thể của một Course. Một `LearningClass`
+có thể được gán một hoặc nhiều curriculum thông qua `ClassCurriculumAssignment`
+(LearningClassId, CurriculumId, Order, Status). Assignment là quan hệ tham chiếu;
+không sao chép cây nội dung vào lớp.
+
 Không để Course aggregate chứa toàn bộ:
 - classes;
 - students;
@@ -206,7 +213,23 @@ Không để Course aggregate chứa toàn bộ:
 
 ---
 
-## 5.2. CourseModule
+## 5.2. Curriculum
+
+```csharp
+Curriculum
+{
+    Id
+    CourseId
+    Title
+    Description
+    Status
+}
+```
+
+Curriculum có lifecycle publish riêng và là context của tiến độ học theo học
+sinh + lớp + curriculum.
+
+## 5.3. CourseModule
 
 ```csharp
 CourseModule
@@ -225,7 +248,7 @@ Không bắt buộc nhét toàn bộ course tree vào một JSON document khổn
 
 ---
 
-## 5.3. Lesson
+## 5.4. Lesson
 
 ```csharp
 Lesson
@@ -347,6 +370,7 @@ LiveSession
     Status
     StartedAt
     EndedAt
+    LateAfterMinutes
     MediaRoomId
 }
 ```
@@ -377,6 +401,8 @@ AttendanceRecord
     AdjustedBy?
     AdjustmentReason?
     CurrentJoinedAt?
+    Segments
+    ReconnectCount
 }
 ```
 
@@ -393,7 +419,10 @@ những HTTP/SignalR connection đang tham gia segment. Một disconnect chỉ �
 segment khi connection cuối cùng rời đi; nó không thay thế presence. Join/leave
 được xử lý bất đồng bộ và phải idempotent.
 
----
+`Segments` lưu lịch sử các lần vào/rời trong đúng phiên đó (thời điểm vào, thời điểm
+rời và thời lượng). `ReconnectCount` là số lần mở lại sau segment đầu tiên. Ngưỡng
+đi muộn được chốt trên `LiveSession.LateAfterMinutes` để một lần reconnect không làm
+thay đổi luật của phiên khác.
 
 # 10.1. RaiseHand
 
@@ -413,6 +442,26 @@ RaiseHand
 Đây là document trạng thái nhỏ, có identity xác định theo
 `LiveSessionId + StudentId`. Broadcast SignalR chỉ là delta; document là nguồn
 durable để teacher tải lại hàng đợi giơ tay.
+
+---
+
+# 10.2. LiveSessionParticipantModeration
+
+```csharp
+LiveSessionParticipantModeration
+{
+    LiveSessionId
+    StudentId
+    IsBlocked
+    IsMuted
+    ChangedBy
+    UpdatedAt
+}
+```
+
+Đây là document tenant-scoped theo cặp `LiveSessionId + StudentId`. Kick, block và
+mute chỉ tác động tới phiên hiện tại; không ghi trạng thái vào enrollment hoặc tài
+khoản để tránh lan sang phiên khác.
 
 ---
 
@@ -1229,6 +1278,47 @@ Không nhét:
 
 ---
 
+# 32.1. StudentCurriculumContentView
+
+`StudentCurriculumContentView` là read model theo `LearningClass`, curriculum và
+người học, được dựng on-demand từ nội dung đã publish và
+`StudentLessonProgressRecord` của chính sinh viên. Nó chỉ chứa tiêu đề, thứ tự,
+trạng thái và số bài hoàn thành; nội dung chi tiết và tài nguyên lesson được tải
+qua query riêng sau khi sinh viên mở bài.
+
+```text
+StudentCurriculumContentView
+    LearningClassId
+    CurriculumId
+    CourseId
+    CurriculumTitle
+    CourseTitle
+    CompletedLessons
+    TotalLessons
+    Progress
+    Modules[]
+
+StudentCourseModuleView
+    ModuleId
+    Title
+    Order
+    CompletedLessons
+    TotalLessons
+    Lessons[]
+
+StudentLessonSummaryView
+    LessonId
+    Title
+    Order
+    Status (InProgress | Completed | null)
+```
+
+`StudentLessonDetailView` là query on-demand có thêm `ContentSummary`, module
+context, trạng thái tiến độ và metadata tài nguyên đã publish. Đây là các view
+phục vụ UI, không phải aggregate mới và không sao chép Course/Module/Lesson.
+
+---
+
 # 33. Persistence Matrix
 
 | Model | Storage chính | Kiểu |
@@ -1236,7 +1326,7 @@ Không nhét:
 | Organization | PostgreSQL/Marten | Document |
 | User | PostgreSQL/Marten | Document |
 | Course | PostgreSQL/Marten | Document |
-| CourseModule/Lesson | PostgreSQL/Marten | Document/entity tùy lifecycle |
+| Curriculum/CourseModule/Lesson | PostgreSQL/Marten | Document/entity tùy lifecycle |
 | LearningClass | PostgreSQL/Marten | Document |
 | Enrollment | PostgreSQL/Marten | Document |
 | ClassSchedule | PostgreSQL/Marten | Document |
@@ -1252,6 +1342,7 @@ Không nhét:
 | GradeAdjustment | PostgreSQL/Marten | Audit document |
 | Essay* | PostgreSQL/Marten | Documents + domain events khi cần |
 | StudentProgressRecord/StudentLessonProgressRecord | PostgreSQL/Marten | Projection/documents |
+| StudentCourseContentView (query response) | PostgreSQL/Marten query over published CourseModule/Lesson + StudentLessonProgressRecord | On-demand student read model |
 | LearningResource | PostgreSQL/Marten | Metadata document |
 | ClassReportSnapshot/StudentReportSnapshot | PostgreSQL/Marten | Reporting projections |
 | ClassOverviewView | PostgreSQL/Marten | Projection |

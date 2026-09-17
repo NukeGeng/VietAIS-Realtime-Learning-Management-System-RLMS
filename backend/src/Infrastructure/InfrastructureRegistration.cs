@@ -57,6 +57,8 @@ public static class InfrastructureRegistration
                 "mt_course_code",
                 Marten.Schema.Indexing.Unique.TenancyScope.PerTenant,
                 x => x.Code);
+            options.Schema.For<Curriculum>();
+            options.Schema.For<ClassCurriculumAssignment>();
             options.Schema.For<CourseModule>();
             options.Schema.For<Lesson>();
             options.Schema.For<LearningClass>().UniqueIndex(

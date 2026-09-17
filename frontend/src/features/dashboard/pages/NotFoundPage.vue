@@ -1,1 +1,1 @@
-<template><div class="panel empty-state"><strong>Không tìm thấy trang</strong><span>Đường dẫn này không thuộc workspace hiện tại.</span><RouterLink class="button primary" to="/dashboard">Về tổng quan</RouterLink></div></template>
+<template><div class="panel empty-state"><strong>Không tìm thấy trang</strong><span>Đường dẫn này không thuộc không gian hiện tại.</span><RouterLink class="button primary" to="/dashboard">Về tổng quan</RouterLink></div></template>

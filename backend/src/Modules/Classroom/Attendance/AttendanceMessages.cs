@@ -20,6 +20,12 @@ public sealed record LiveSessionParticipantLeft(
     DateTimeOffset LeftAt,
     string ConnectionId = "http");
 
+public sealed record LiveSessionParticipantReconnected(
+    Guid OrganizationId,
+    Guid LiveSessionId,
+    Guid StudentId,
+    DateTimeOffset ReconnectedAt);
+
 public sealed record LiveSessionEnded(
     Guid OrganizationId,
     Guid LiveSessionId,
@@ -64,6 +70,18 @@ public static class AttendanceMessagePublisher
         await PublishAsync(messageBus, logger,
             new LiveSessionParticipantLeft(organizationId, liveSessionId, studentId, leftAt,
                 AttendanceConnection.Normalize(connectionId)));
+    }
+
+    public static async Task PublishParticipantReconnectedAsync(
+        IMessageBus messageBus,
+        ILogger logger,
+        Guid organizationId,
+        Guid liveSessionId,
+        Guid studentId,
+        DateTimeOffset reconnectedAt)
+    {
+        await PublishAsync(messageBus, logger,
+            new LiveSessionParticipantReconnected(organizationId, liveSessionId, studentId, reconnectedAt));
     }
 
     public static async Task PublishSessionEndedAsync(
@@ -120,7 +138,8 @@ public static class AttendanceParticipantJoinedHandler
         }
 
         var enrollment = await session.Query<Enrollment>()
-            .FirstOrDefaultAsync(value => value.LearningClassId == liveSession.LearningClassId &&
+            .FirstOrDefaultAsync(value => value.OrganizationId == message.OrganizationId &&
+                value.LearningClassId == liveSession.LearningClassId &&
                 value.StudentId == message.StudentId &&
                 value.Status == EnrollmentStatus.Active, cancellationToken);
         if (enrollment is null)
@@ -148,6 +167,7 @@ public static class AttendanceParticipantJoinedHandler
                     ? AttendanceStatus.Late
                     : AttendanceStatus.Present,
                 ActiveConnectionIds = [connectionId],
+                Segments = [new AttendanceSegment { JoinedAt = message.JoinedAt }],
                 UpdatedAt = message.JoinedAt
             };
             session.Insert(record);
@@ -168,7 +188,7 @@ public static class AttendanceParticipantJoinedHandler
             {
                 if (record.CurrentJoinedAt is null)
                 {
-                    record.CurrentJoinedAt = message.JoinedAt;
+                    AttendanceHistory.StartSegment(record, message.JoinedAt);
                 }
 
                 record.ActiveConnectionIds = [.. record.ActiveConnectionIds, connectionId];
@@ -191,8 +211,7 @@ public static class AttendanceParticipantJoinedHandler
         {
             if (record.CurrentJoinedAt is { } joinedAt && endedAt > joinedAt)
             {
-                record.TotalDuration += endedAt - joinedAt;
-                record.CurrentJoinedAt = null;
+                AttendanceHistory.CloseSegment(record, endedAt);
                 record.LastLeftAt = record.LastLeftAt is { } lastLeftAt && lastLeftAt > endedAt
                     ? lastLeftAt
                     : endedAt;
@@ -226,7 +245,8 @@ public static class AttendanceParticipantLeftHandler
         }
 
         var enrollment = await session.Query<Enrollment>()
-            .FirstOrDefaultAsync(value => value.LearningClassId == liveSession.LearningClassId &&
+            .FirstOrDefaultAsync(value => value.OrganizationId == message.OrganizationId &&
+                value.LearningClassId == liveSession.LearningClassId &&
                 value.StudentId == message.StudentId, cancellationToken);
         if (enrollment is null)
         {
@@ -258,8 +278,7 @@ public static class AttendanceParticipantLeftHandler
             if (record.ActiveConnectionIds.Length == 0 && record.CurrentJoinedAt is { } joinedAt &&
                 message.LeftAt > joinedAt)
             {
-                record.TotalDuration += message.LeftAt - joinedAt;
-                record.CurrentJoinedAt = null;
+                AttendanceHistory.CloseSegment(record, message.LeftAt);
                 if (record.LastLeftAt is null || message.LeftAt > record.LastLeftAt)
                 {
                     record.LastLeftAt = message.LeftAt;
@@ -273,6 +292,56 @@ public static class AttendanceParticipantLeftHandler
         await session.SaveChangesAsync(cancellationToken);
     }
 
+}
+
+public static class AttendanceParticipantReconnectedHandler
+{
+    public static async Task Handle(
+        LiveSessionParticipantReconnected message,
+        IDocumentStore store,
+        CancellationToken cancellationToken)
+    {
+        await using var session = store.LightweightSession(message.OrganizationId.ToString("D"));
+        var liveSession = await session.LoadAsync<LiveSession>(message.LiveSessionId, cancellationToken);
+        if (liveSession is null || liveSession.OrganizationId != message.OrganizationId ||
+            liveSession.Status != LiveSessionStatus.Started)
+        {
+            return;
+        }
+
+        var enrollment = await session.Query<Enrollment>()
+            .FirstOrDefaultAsync(value => value.OrganizationId == message.OrganizationId &&
+                value.LearningClassId == liveSession.LearningClassId &&
+                value.StudentId == message.StudentId && value.Status == EnrollmentStatus.Active,
+                cancellationToken);
+        if (enrollment is null)
+        {
+            return;
+        }
+
+        var record = await session.LoadAsync<AttendanceRecord>(
+            ClassroomConstants.AttendanceRecordId(message.LiveSessionId, message.StudentId), cancellationToken);
+        if (record is null || record.AdjustedBy is not null)
+        {
+            return;
+        }
+
+        AttendanceHistory.EnsureSegments(record);
+        if (record.CurrentJoinedAt is { } joinedAt && message.ReconnectedAt > joinedAt)
+        {
+            AttendanceHistory.CloseSegment(record, message.ReconnectedAt);
+            record.LastLeftAt = message.ReconnectedAt;
+        }
+
+        if (record.CurrentJoinedAt is null)
+        {
+            AttendanceHistory.StartSegment(record, message.ReconnectedAt);
+        }
+
+        record.UpdatedAt = message.ReconnectedAt;
+        session.Update(record);
+        await session.SaveChangesAsync(cancellationToken);
+    }
 }
 
 public static class AttendanceSessionEndedHandler
@@ -291,7 +360,8 @@ public static class AttendanceSessionEndedHandler
         }
 
         var enrollments = await session.Query<Enrollment>()
-            .Where(value => value.LearningClassId == liveSession.LearningClassId &&
+            .Where(value => value.OrganizationId == message.OrganizationId &&
+                value.LearningClassId == liveSession.LearningClassId &&
                 value.Status == EnrollmentStatus.Active)
             .Select(value => value.StudentId)
             .ToListAsync(cancellationToken);
@@ -320,8 +390,7 @@ public static class AttendanceSessionEndedHandler
                 var changed = record.ActiveConnectionIds.Length > 0;
                 if (record.CurrentJoinedAt is { } joinedAt && message.EndedAt > joinedAt)
                 {
-                    record.TotalDuration += message.EndedAt - joinedAt;
-                    record.CurrentJoinedAt = null;
+                    AttendanceHistory.CloseSegment(record, message.EndedAt);
                     record.LastLeftAt = message.EndedAt;
                     changed = true;
                 }
@@ -375,12 +444,71 @@ public static class AttendanceHandlerRules
         DateTimeOffset joinedAt,
         CancellationToken cancellationToken)
     {
-        if (liveSession.ClassScheduleId is not { } scheduleId)
+        ClassSchedule? schedule = null;
+        if (liveSession.ClassScheduleId is { } scheduleId)
         {
-            return false;
+            schedule = await session.LoadAsync<ClassSchedule>(scheduleId, cancellationToken);
+        }
+        var startsAt = schedule?.StartsAt ?? liveSession.StartedAt;
+        // A room created after the planned occurrence has already ended is a
+        // new runtime occurrence. Use its durable start as the baseline instead
+        // of turning the stale schedule date into thousands of late minutes.
+        if (schedule is not null && liveSession.StartedAt is { } runtimeStart &&
+            runtimeStart > schedule.EndsAt)
+        {
+            startsAt = runtimeStart;
+        }
+        return startsAt is not null && joinedAt > startsAt.Value.AddMinutes(liveSession.LateAfterMinutes);
+    }
+}
+
+internal static class AttendanceHistory
+{
+    public static void EnsureSegments(AttendanceRecord record)
+    {
+        record.Segments ??= [];
+        if (record.Segments.Count == 0 && record.CurrentJoinedAt is { } joinedAt)
+        {
+            record.Segments.Add(new AttendanceSegment { JoinedAt = joinedAt });
+        }
+    }
+
+    public static void StartSegment(AttendanceRecord record, DateTimeOffset joinedAt)
+    {
+        EnsureSegments(record);
+        if (record.CurrentJoinedAt is not null)
+        {
+            return;
         }
 
-        var schedule = await session.LoadAsync<ClassSchedule>(scheduleId, cancellationToken);
-        return schedule is not null && joinedAt > schedule.StartsAt;
+        if (record.Segments.Count > 0)
+        {
+            record.ReconnectCount++;
+        }
+
+        record.CurrentJoinedAt = joinedAt;
+        record.Segments.Add(new AttendanceSegment { JoinedAt = joinedAt });
+    }
+
+    public static void CloseSegment(AttendanceRecord record, DateTimeOffset leftAt)
+    {
+        EnsureSegments(record);
+        if (record.CurrentJoinedAt is not { } joinedAt || leftAt <= joinedAt)
+        {
+            return;
+        }
+
+        var duration = leftAt - joinedAt;
+        var segment = record.Segments.LastOrDefault(value => value.LeftAt is null);
+        if (segment is null)
+        {
+            segment = new AttendanceSegment { JoinedAt = joinedAt };
+            record.Segments.Add(segment);
+        }
+
+        segment.LeftAt = leftAt;
+        segment.Duration = duration;
+        record.TotalDuration += duration;
+        record.CurrentJoinedAt = null;
     }
 }

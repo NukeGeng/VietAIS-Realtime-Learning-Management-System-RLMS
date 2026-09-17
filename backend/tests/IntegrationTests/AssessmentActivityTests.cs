@@ -67,7 +67,10 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
 
         var overviewDelta = new TaskCompletionSource<ActivityOverviewDelta>(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        var detailDelta = new TaskCompletionSource<ActivityDetailDelta>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         ActivityOverviewDelta? receivedDelta = null;
+        ActivityDetailDelta? receivedDetailDelta = null;
         await using (var connection = new HubConnectionBuilder()
                          .WithUrl("https://localhost/hubs/assessment", options =>
                          {
@@ -85,6 +88,14 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
                         overviewDelta.TrySetResult(delta);
                     }
                 });
+            connection.On<ActivityDetailDelta>("activity-detail-delta",
+                delta =>
+                {
+                    if (delta.Version >= 5)
+                    {
+                        detailDelta.TrySetResult(delta);
+                    }
+                });
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             await connection.StartAsync(timeout.Token);
             await connection.InvokeAsync("SubscribeOverview", setup.ClassId, setup.Activity.Id,
@@ -96,8 +107,12 @@ public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassF
                 new SaveAnswerRequest("B"));
             Assert.Equal(HttpStatusCode.OK, realtimeSave.StatusCode);
             receivedDelta = await overviewDelta.Task.WaitAsync(timeout.Token);
+            receivedDetailDelta = await detailDelta.Task.WaitAsync(timeout.Token);
             Assert.Equal(setup.StudentId, receivedDelta.StudentId);
             Assert.Equal(5, receivedDelta.Version);
+            Assert.Equal(started.Id, receivedDetailDelta.AttemptId);
+            Assert.Equal("answer-changed", receivedDetailDelta.ChangeType);
+            Assert.Equal("B", receivedDetailDelta.AnswerValue);
             Assert.Equal("B", (await realtimeSave.Content.ReadFromJsonAsync<StudentActivityResponse>())!
                 .Answers[questionId]);
 

@@ -2,10 +2,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { enumLabel } from '../types'
 const props = defineProps<{ value?: string | number; labels?: string[]; tone?: string }>()
 const label = computed(() => {
   if (typeof props.value === 'number') return props.labels?.[props.value] || String(props.value)
-  return props.value ? props.value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]/g, ' ') : '—'
+  return enumLabel(props.value)
 })
 const tone = computed(() => {
   if (props.tone) return props.tone

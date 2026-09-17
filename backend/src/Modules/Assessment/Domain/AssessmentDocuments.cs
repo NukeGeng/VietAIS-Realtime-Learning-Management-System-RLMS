@@ -179,6 +179,7 @@ public sealed class StudentAttemptDetailView
     public Guid LearningClassId { get; set; }
     public Guid? LiveSessionId { get; set; }
     public Guid? CurrentQuestionId { get; set; }
+    public Guid[] QuestionOrder { get; set; } = [];
     public StudentActivityStatus Status { get; set; }
     public Dictionary<Guid, string> Answers { get; set; } = [];
     public bool HelpRequested { get; set; }

@@ -27,6 +27,42 @@ public sealed class Course
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
+/// <summary>
+/// A concrete learning-content structure that can be assigned to one or more
+/// learning classes. Course remains the academic subject; curriculum owns the
+/// learner-facing content context.
+/// </summary>
+public sealed class Curriculum
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid CourseId { get; set; }
+    public string Title { get; set; } = "";
+    public string Description { get; set; } = "";
+    public AcademicContentStatus Status { get; set; }
+    public Guid CreatedBy { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public enum ClassCurriculumAssignmentStatus
+{
+    Active,
+    Removed
+}
+
+public sealed class ClassCurriculumAssignment
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid LearningClassId { get; set; }
+    public Guid CurriculumId { get; set; }
+    public int Order { get; set; }
+    public ClassCurriculumAssignmentStatus Status { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
 public sealed class CourseModule
 {
     public Guid Id { get; set; }

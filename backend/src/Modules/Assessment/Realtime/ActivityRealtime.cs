@@ -40,6 +40,7 @@ public sealed record StudentActivityRealtimeState(Guid AttemptId, Guid Organizat
     Guid ActivityId, Guid LearningClassId, Guid? LiveSessionId, Guid? CurrentQuestionId,
     StudentActivityStatus Status, Dictionary<Guid, string> Answers, int AnsweredCount,
     DateTimeOffset StartedAt, DateTimeOffset LastActivityAt, DateTimeOffset? SubmittedAt, long Version,
+    Guid[] QuestionOrder,
     int AttemptNumber = 1, bool HelpRequested = false,
     DateTimeOffset? HelpRequestedAt = null, DateTimeOffset? HelpAcknowledgedAt = null)
 {
@@ -47,7 +48,7 @@ public sealed record StudentActivityRealtimeState(Guid AttemptId, Guid Organizat
         activity.OrganizationId, activity.StudentId, activity.ActivityId, activity.LearningClassId,
         activity.LiveSessionId, activity.CurrentQuestionId, activity.Status,
         new Dictionary<Guid, string>(activity.Answers), activity.AnsweredCount, activity.StartedAt,
-        activity.LastActivityAt, activity.SubmittedAt, activity.Version, activity.AttemptNumber,
+        activity.LastActivityAt, activity.SubmittedAt, activity.Version, activity.QuestionOrder.ToArray(), activity.AttemptNumber,
         activity.HelpRequested, activity.HelpRequestedAt, activity.HelpAcknowledgedAt);
 }
 
@@ -66,7 +67,8 @@ public sealed record ActivityDetailDelta(Guid AttemptId, long Version, string Ch
 public interface IActivityRealtimeNotifier
 {
     Task NotifyAsync(Guid organizationId, Guid learningClassId, Guid activityId, Guid attemptId,
-        ActivityOverviewDelta overview, ActivityDetailDelta detail, CancellationToken cancellationToken = default);
+        ActivityOverviewDelta? overview, ActivityDetailDelta? detail,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class ActivityRealtimeNotifier(
@@ -74,29 +76,35 @@ public sealed class ActivityRealtimeNotifier(
     ILogger<ActivityRealtimeNotifier> logger) : IActivityRealtimeNotifier
 {
     public async Task NotifyAsync(Guid organizationId, Guid learningClassId, Guid activityId,
-        Guid attemptId, ActivityOverviewDelta overview, ActivityDetailDelta detail,
+        Guid attemptId, ActivityOverviewDelta? overview, ActivityDetailDelta? detail,
         CancellationToken cancellationToken = default)
     {
-        try
+        if (overview is not null)
         {
-            await hub.Clients.Group(ActivityRealtimeGroups.Overview(organizationId, learningClassId, activityId))
-                .SendAsync("activity-overview-delta", overview, cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            logger.LogWarning(exception, "Activity overview realtime delivery failed for attempt {AttemptId}.",
-                attemptId);
+            try
+            {
+                await hub.Clients.Group(ActivityRealtimeGroups.Overview(organizationId, learningClassId, activityId))
+                    .SendAsync("activity-overview-delta", overview, cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(exception, "Activity overview realtime delivery failed for attempt {AttemptId}.",
+                    attemptId);
+            }
         }
 
-        try
+        if (detail is not null)
         {
-            await hub.Clients.Group(ActivityRealtimeGroups.Detail(organizationId, attemptId))
-                .SendAsync("activity-detail-delta", detail, cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            logger.LogWarning(exception, "Activity detail realtime delivery failed for attempt {AttemptId}.",
-                attemptId);
+            try
+            {
+                await hub.Clients.Group(ActivityRealtimeGroups.Detail(organizationId, attemptId))
+                    .SendAsync("activity-detail-delta", detail, cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(exception, "Activity detail realtime delivery failed for attempt {AttemptId}.",
+                    attemptId);
+            }
         }
     }
 }
