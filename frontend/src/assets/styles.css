@@ -309,6 +309,14 @@ a { color: inherit; text-decoration: none; }
 .tab-control.active:hover { background: var(--brand-soft); color: var(--brand); }
 .class-tab-content { min-height: 260px; }
 .class-tab-content > section { min-height: inherit; }
+.class-essay-list { margin: 0; padding: 0; list-style: none; }
+.class-essay-list > li + li { border-top: 1px solid var(--border); }
+.class-essay-link { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 16px; border-radius: 6px; padding: 12px 10px; transition: background .16s ease; }
+.class-essay-link:hover { background: var(--surface-muted); }
+.class-essay-link:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.class-essay-copy { display: grid; min-width: 0; gap: 5px; overflow-wrap: anywhere; }
+.class-essay-copy strong { color: var(--text-1); font-size: 12px; line-height: 1.5; }
+.class-essay-copy > span { color: var(--text-3); font-size: 11px; line-height: 1.5; }
 
 .activity-workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; }
 .question-list { align-self: start; position: sticky; top: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 11px; }
