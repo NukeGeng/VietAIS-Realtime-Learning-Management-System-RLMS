@@ -174,12 +174,27 @@ Nhánh sửa: `module/fe-ui-audit-fixes`, dựa trên `ffb0064` (phụ thuộc P
 - `npm run typecheck`: PASS.
 - `npm run build`: PASS. Rollup chỉ cảnh báo annotation `PURE` có sẵn trong package SignalR, không làm build thất bại.
 - `node --test frontend/tests/*.test.mjs`: **53/53 PASS**.
+- Chạy cùng 53 kiểm thử trong container Node 20.20.2/Linux: **53/53 PASS**. Workflow frontend bổ sung bước chạy bộ regression này sau typecheck/build.
 - Backend solution build: PASS, 0 lỗi/0 cảnh báo.
 - Unit `LiveSessionRulesTests`: **14/14 PASS**.
 - Integration nhắm đúng các thay đổi Identity/Assessment/Attendance/LiveSession: **8/8 PASS**, gồm ba trường hợp join đến sai thứ tự.
 - `dotnet format backend/LearningPlatform.sln --no-restore --verify-no-changes`: PASS.
 - `git diff --check`: PASS.
 - Hai lượt review source độc lập không phát hiện regression cụ thể trong frontend hoặc backend diff.
+
+### Sửa môi trường CI
+
+CI backend của commit UI đầu tiên dừng trước bước build: registry Quay trả 401
+khi tải phiên bản MinIO đã pin. Hai Dockerfile local tải đúng binary chính thức
+từ GitHub Releases, kiểm tra SHA-256 riêng cho amd64/arm64, kèm thông báo giấy
+phép từ commit upstream cố định. Phiên bản server/client, cấu hình S3, bucket và
+volume được giữ nguyên; `start-services.sh` build cả hai image trước khi chạy.
+
+- Build và chạy `--version` cho cả hai image trên linux/amd64 và linux/arm64: PASS.
+- SHA-256 trong image khớp cả bốn binary upstream: PASS.
+- `docker compose config -q`, `bash -n scripts/start-services.sh`: PASS.
+- Không restart service local đang chạy trong quá trình kiểm tra image.
+- CI GitHub sẽ chạy lại trên commit sửa môi trường; kết quả được ghi trong PR.
 
 ### Giới hạn và dữ liệu lịch sử
 

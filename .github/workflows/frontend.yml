@@ -23,3 +23,5 @@ jobs:
         run: npm run typecheck --prefix frontend
       - name: Build
         run: npm run build --prefix frontend
+      - name: Run frontend regression tests
+        run: node --test frontend/tests/*.test.mjs

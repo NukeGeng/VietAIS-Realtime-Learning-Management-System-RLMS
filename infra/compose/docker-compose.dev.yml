@@ -27,7 +27,10 @@ services:
       timeout: 3s
       retries: 15
   object-storage:
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: rlms-minio:RELEASE.2025-04-22T22-12-26Z
+    build:
+      context: .
+      dockerfile: Dockerfile.minio
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${RLMS_STORAGE_ACCESS_KEY:?Run scripts/setup-local.py}
@@ -44,7 +47,10 @@ services:
       retries: 15
   storage-init:
     profiles: ["setup"]
-    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    image: rlms-mc:RELEASE.2025-04-16T18-13-26Z
+    build:
+      context: .
+      dockerfile: Dockerfile.mc
     depends_on:
       object-storage:
         condition: service_healthy

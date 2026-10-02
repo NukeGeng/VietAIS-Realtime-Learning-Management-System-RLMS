@@ -43,6 +43,11 @@ chưa trust development certificate, chạy một lần:
 dotnet dev-certs https --trust
 ```
 
+Lần khởi động đầu cần mạng để build image MinIO và MinIO Client từ binary
+GitHub Releases chính thức, kiểm tra SHA-256 và giữ phiên bản cố định trong
+`infra/compose/Dockerfile.minio` và `Dockerfile.mc`. Các lần sau dùng build cache.
+Compose không cần pull image MinIO từ Quay; dữ liệu vẫn dùng volume hiện có.
+
 Các lệnh riêng lẻ vẫn có thể dùng khi cần debug từng thành phần:
 
 ```bash
