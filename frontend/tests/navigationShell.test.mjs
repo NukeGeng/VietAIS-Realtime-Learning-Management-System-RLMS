@@ -53,6 +53,29 @@ function key(name, shiftKey = false) {
 
 const flushUi = () => new Promise(resolve => setImmediate(resolve))
 
+test('class tabs use short labels while the header follows the full class context', t => {
+  const runtime = setup('../src/app/layouts/AppShell.vue', 'currentTitle')
+  t.after(runtime.dispose)
+  const { navigation, state } = runtime
+  navigation.addTab({ key: 'class-a', title: 'Lớp học', route: '/classes/class-a', closable: true })
+  navigation.renameTab('/classes/class-a/essays', 'SE01', 'SE01 · C# Backend')
+  navigation.activate('/classes/class-a/content')
+  assert.equal(navigation.activeTab.title, 'SE01')
+  assert.equal(state.currentTitle.value, 'SE01 · C# Backend')
+
+  navigation.addTab({ key: 'class-b', title: 'Lớp học', route: '/classes/class-b', closable: true })
+  navigation.renameTab('/classes/class-b/overview', 'SE02', 'SE02 · ASP.NET Core')
+  assert.equal(state.currentTitle.value, 'SE02 · ASP.NET Core')
+  navigation.activate('/classes/class-a/resources')
+  assert.equal(state.currentTitle.value, 'SE01 · C# Backend')
+  assert.equal(navigation.openedTabs.length, 3, 'class subtabs reuse their application tab')
+  navigation.activate('/classes/class-b/essays')
+  navigation.closeTab('class-b')
+  assert.equal(state.currentTitle.value, 'SE01 · C# Backend', 'closing a class restores the neighboring header')
+  navigation.renameTab('/classes/class-a', 'Tên trang mới')
+  assert.equal(state.currentTitle.value, 'Tên trang mới', 'a normal rename clears the optional header title')
+})
+
 test('Delete closes the active tab, routes to its neighbor and restores keyboard focus', async t => {
   const runtime = tabs(); t.after(runtime.dispose)
   runtime.elements.get('calendar').activate.focus()

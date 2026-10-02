@@ -120,7 +120,7 @@ let seenAuthSessionKey = authSessionKey.value
 const roleLabel = computed(() => auth.role === 'admin' ? 'Không gian quản trị' : auth.role === 'teacher' ? 'Không gian giảng viên' : 'Không gian sinh viên')
 const items = computed(() => navigation.menuFor(auth.role, auth.permissions))
 const collapsedGroup = computed(() => items.value.find(item => item.key === collapsedGroupKey.value && !item.route && item.children?.length))
-const currentTitle = computed(() => navigation.activeTab?.title || String(route.meta.title || 'Tổng quan'))
+const currentTitle = computed(() => navigation.activeTab?.headerTitle || navigation.activeTab?.title || String(route.meta.title || 'Tổng quan'))
 const initials = computed(() => (auth.account?.displayName || 'RL').split(/\s+/).slice(-2).map(part => part[0]).join('').toUpperCase())
 
 function isActive(path: string) {

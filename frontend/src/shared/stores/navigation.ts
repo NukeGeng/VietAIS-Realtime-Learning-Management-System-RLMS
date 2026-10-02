@@ -6,6 +6,7 @@ import { permissions as P, type Permission } from '../permissions'
 export interface OpenedTab {
   key: string
   title: string
+  headerTitle?: string
   route: string
   closable: boolean
 }
@@ -123,9 +124,12 @@ export const useNavigationStore = defineStore('navigation', () => {
     activeRoute.value = '/dashboard'
   }
 
-  function renameTab(route: string, title: string) {
+  function renameTab(route: string, title: string, headerTitle?: string) {
     const tab = openedTabs.value.find(item => item.route === applicationTabRoute(route))
-    if (tab && title.trim()) tab.title = title.trim()
+    if (tab && title.trim()) {
+      tab.title = title.trim()
+      tab.headerTitle = headerTitle?.trim() || undefined
+    }
   }
 
   function closeTab(key: string) {
