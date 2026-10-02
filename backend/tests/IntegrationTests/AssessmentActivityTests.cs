@@ -11,6 +11,7 @@ using LearningPlatform.Communication.Api;
 using LearningPlatform.Learning.Api;
 using LearningPlatform.Reporting.Api;
 using LearningPlatform.Reporting.Domain;
+using LearningPlatform.Identity.Domain;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Http.Connections;
@@ -20,6 +21,104 @@ namespace LearningPlatform.IntegrationTests;
 
 public sealed class AssessmentActivityTests(FoundationFixture fixture) : IClassFixture<FoundationFixture>
 {
+    [Fact]
+    public async Task Student_names_are_available_to_assigned_teachers_without_expanding_student_access()
+    {
+        var setup = await CreateActivitySetupAsync(includeSecondStudent: true);
+        using var secondStudent = setup.SecondStudent!;
+        using var assignedTeacher = await CreateAssignedTeacherAsync(setup);
+        var organization = await fixture.EnsureBootstrappedAsync();
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+        var expectedNames = new Dictionary<Guid, string>
+        {
+            [setup.StudentId] = "Nguyễn Văn Minh",
+            [setup.SecondStudentId] = "Trần Thị Mai"
+        };
+        await using (var tenant = store.LightweightSession(organization.OrganizationId.ToString("D")))
+        {
+            foreach (var (studentId, name) in expectedNames)
+            {
+                var account = (await tenant.LoadAsync<UserAccount>(studentId))!;
+                account.DisplayName = name;
+                tenant.Update(account);
+            }
+            await tenant.SaveChangesAsync();
+        }
+
+        using var startA = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        startA.EnsureSuccessStatusCode();
+        var attemptA = (await startA.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
+        using var startB = await PostWithCsrfAsync(secondStudent,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/start", new { });
+        startB.EnsureSuccessStatusCode();
+        var attemptB = (await startB.Content.ReadFromJsonAsync<StudentActivityResponse>())!;
+
+        var rosterPath = $"/api/academics/classes/{setup.ClassId:D}/enrollments";
+        var overviewPath = $"/api/assessment/classes/{setup.ClassId:D}/activities/{setup.Activity.Id:D}/overview";
+        var gradebookPath = $"/api/assessment/classes/{setup.ClassId:D}/gradebook";
+        var detailPath = $"/api/assessment/attempts/{attemptA.Id:D}/detail";
+        var helpPath = $"/api/assessment/classes/{setup.ClassId:D}/help-requests";
+
+        var roster = (await assignedTeacher.GetFromJsonAsync<EnrollmentResponse[]>(rosterPath))!;
+        Assert.Equal(2, roster.Length);
+        Assert.All(roster, row => Assert.Equal(expectedNames[row.StudentId], row.StudentDisplayName));
+        var ownRoster = (await setup.Student.GetFromJsonAsync<EnrollmentResponse[]>(rosterPath))!;
+        Assert.Equal(setup.StudentId, Assert.Single(ownRoster).StudentId);
+        Assert.Equal(expectedNames[setup.StudentId], Assert.Single(ownRoster).StudentDisplayName);
+
+        var overview = (await assignedTeacher.GetFromJsonAsync<ClassOverviewResponse>(overviewPath))!;
+        Assert.Equal(2, overview.Students.Length);
+        Assert.All(overview.Students, row => Assert.Equal(expectedNames[row.StudentId], row.StudentDisplayName));
+        var detail = (await assignedTeacher.GetFromJsonAsync<StudentAttemptDetailResponse>(detailPath))!;
+        Assert.Equal(expectedNames[setup.StudentId], detail.StudentDisplayName);
+        var gradebook = (await assignedTeacher.GetFromJsonAsync<GradebookResponse>(gradebookPath))!;
+        Assert.Equal(2, gradebook.Students.Length);
+        Assert.All(gradebook.Students, row => Assert.Equal(expectedNames[row.StudentId], row.StudentDisplayName));
+        var ownGradebook = (await setup.Student.GetFromJsonAsync<GradebookResponse>($"{gradebookPath}/me"))!;
+        Assert.Equal(setup.StudentId, Assert.Single(ownGradebook.Students).StudentId);
+        Assert.Equal(expectedNames[setup.StudentId], Assert.Single(ownGradebook.Students).StudentDisplayName);
+
+        using var help = await PostWithCsrfAsync(setup.Student,
+            $"/api/assessment/activities/{setup.Activity.Id:D}/attempt/help", new { });
+        help.EnsureSuccessStatusCode();
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            HelpRequestResponse[] requests = [];
+            while (requests.Length == 0)
+            {
+                requests = (await assignedTeacher.GetFromJsonAsync<HelpRequestResponse[]>(helpPath, timeout.Token))!;
+                if (requests.Length == 0) await Task.Delay(100, timeout.Token);
+            }
+            Assert.Equal(expectedNames[setup.StudentId], Assert.Single(requests).StudentDisplayName);
+        }
+
+        using var deniedGradebook = await setup.Student.GetAsync(gradebookPath);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedGradebook.StatusCode);
+        using var deniedDetail = await setup.Student.GetAsync($"/api/assessment/attempts/{attemptB.Id:D}/detail");
+        Assert.Equal(HttpStatusCode.Forbidden, deniedDetail.StatusCode);
+
+        var unassignedEmail = $"name-unassigned-{Guid.NewGuid():N}@rlms.test";
+        await fixture.CreateTestAccountAsync(unassignedEmail, "unassigned teacher names password", "TEACHER");
+        using var unassignedTeacher = fixture.Client();
+        FoundationFixture.SetCookies(unassignedTeacher,
+            await fixture.LoginCookieAsync(unassignedEmail, "unassigned teacher names password"));
+        var otherOrganization = await fixture.CreateTestOrganizationAsync();
+        using var otherTenant = fixture.Client();
+        FoundationFixture.SetCookies(otherTenant,
+            await fixture.LoginCookieAsync(otherOrganization.Email, organizationCode: otherOrganization.Code));
+        foreach (var path in new[] { rosterPath, overviewPath, gradebookPath, detailPath, helpPath })
+        {
+            using var unassigned = await unassignedTeacher.GetAsync(path);
+            Assert.Equal(HttpStatusCode.Forbidden, unassigned.StatusCode);
+            using var other = await otherTenant.GetAsync(path);
+            Assert.Contains(other.StatusCode, new[] { HttpStatusCode.NotFound, HttpStatusCode.Forbidden });
+            var body = await other.Content.ReadAsStringAsync();
+            Assert.DoesNotContain(expectedNames[setup.StudentId], body);
+            Assert.DoesNotContain(expectedNames[setup.SecondStudentId], body);
+        }
+    }
+
     [Fact]
     public async Task Teacher_can_publish_immutable_activity_and_student_can_save_and_submit_attempt()
     {

@@ -588,19 +588,19 @@ public static class GradingEndpoints
     }
 
     private static Task<IResult> GetTeacherGradebookAsync(Guid classId, HttpContext context,
-        IQuerySession session, IAcademicDirectory academics, CancellationToken cancellationToken)
+        IQuerySession session, IAcademicDirectory academics, IIdentityDirectory identity, CancellationToken cancellationToken)
     {
-        return GetGradebookAsync(classId, null, context, session, academics, cancellationToken);
+        return GetGradebookAsync(classId, null, context, session, academics, identity, cancellationToken);
     }
 
     private static Task<IResult> GetStudentGradebookAsync(Guid classId, HttpContext context,
-        IQuerySession session, IAcademicDirectory academics, CancellationToken cancellationToken)
+        IQuerySession session, IAcademicDirectory academics, IIdentityDirectory identity, CancellationToken cancellationToken)
     {
-        return GetGradebookAsync(classId, Guid.Empty, context, session, academics, cancellationToken);
+        return GetGradebookAsync(classId, Guid.Empty, context, session, academics, identity, cancellationToken);
     }
 
     private static async Task<IResult> GetGradebookAsync(Guid classId, Guid? studentFilter,
-        HttpContext context, IQuerySession session, IAcademicDirectory academics,
+        HttpContext context, IQuerySession session, IAcademicDirectory academics, IIdentityDirectory identity,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -675,6 +675,8 @@ public static class GradingEndpoints
             studentIds = [actor.UserId];
         }
 
+        var names = await identity.FindMemberNamesAsync(actor.OrganizationId, studentIds,
+            cancellationToken);
         var rows = studentIds.Select(studentId =>
         {
             var cells = items.Select(item =>
@@ -699,7 +701,10 @@ public static class GradingEndpoints
             decimal? finalScore = weightedAverage is { } weighted
                 ? decimal.Round(weighted * 100m, 2)
                 : null;
-            return new GradebookStudentRowResponse(studentId, average, weightedAverage, finalScore, cells);
+            return new GradebookStudentRowResponse(studentId, average, weightedAverage, finalScore, cells)
+            {
+                StudentDisplayName = names.GetValueOrDefault(studentId)
+            };
         }).ToArray();
         return Results.Ok(new GradebookResponse(classId, itemResponses, rows));
     }
@@ -765,7 +770,10 @@ public sealed record GradebookItemResponse(Guid GradeItemId, Guid ActivityId, Gu
 }
 
 public sealed record GradebookStudentRowResponse(Guid StudentId, decimal? Average,
-    decimal? WeightedAverage, decimal? FinalScore, GradebookCellResponse[] Entries);
+    decimal? WeightedAverage, decimal? FinalScore, GradebookCellResponse[] Entries)
+{
+    public string? StudentDisplayName { get; init; }
+}
 
 public sealed record GradebookCellResponse(Guid GradeItemId, decimal? Score, decimal MaxScore,
     decimal Weight, GradeEntryStatus? Status, string? Feedback, int? Version)

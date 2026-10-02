@@ -2,12 +2,56 @@ using System.Net;
 using System.Net.Http.Json;
 using LearningPlatform.Identity.Domain;
 using LearningPlatform.Identity.Api;
+using LearningPlatform.Identity.Authorization;
+using Marten;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LearningPlatform.IntegrationTests;
 
 public sealed class IdentityTests(FoundationFixture fixture) : IClassFixture<FoundationFixture>
 {
+    [Fact]
+    public async Task Member_name_lookup_is_batched_and_tenant_scoped_for_historical_accounts()
+    {
+        var local = await fixture.CreateTestAccountAsync($"member-name-{Guid.NewGuid():N}@rlms.test",
+            "member name lookup password");
+        var other = await fixture.CreateTestOrganizationAsync();
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var tenant = store.LightweightSession(local.OrganizationId.ToString("D")))
+        {
+            var account = (await tenant.LoadAsync<UserAccount>(local.UserId))!;
+            account.DisplayName = "Nguyễn Văn Minh";
+            account.Status = AccountStatus.Disabled;
+            tenant.Update(account);
+            await tenant.SaveChangesAsync();
+        }
+        await using (var tenant = store.LightweightSession(other.OrganizationId.ToString("D")))
+        {
+            tenant.Insert(new UserAccount
+            {
+                Id = local.UserId,
+                OrganizationId = other.OrganizationId,
+                DisplayName = "Other tenant private name",
+                Email = "collision@other.test",
+                NormalizedEmail = "COLLISION@OTHER.TEST"
+            });
+            await tenant.SaveChangesAsync();
+        }
+
+        using var scope = fixture.Services.CreateScope();
+        var directory = scope.ServiceProvider.GetRequiredService<IIdentityDirectory>();
+        var names = await directory.FindMemberNamesAsync(local.OrganizationId,
+            [local.UserId, local.UserId, other.UserId, Guid.NewGuid(), Guid.Empty]);
+
+        Assert.Equal("Nguyễn Văn Minh", Assert.Single(names).Value);
+        Assert.Equal(local.UserId, Assert.Single(names).Key);
+        var otherNames = await directory.FindMemberNamesAsync(other.OrganizationId, [local.UserId]);
+        Assert.Equal("Other tenant private name", Assert.Single(otherNames).Value);
+        Assert.Empty(await directory.FindMemberNamesAsync(local.OrganizationId, []));
+        Assert.Empty(await directory.FindMemberNamesAsync(Guid.Empty, [local.UserId]));
+        Assert.Null(await directory.FindActiveMemberAsync(local.OrganizationId, local.UserId));
+    }
+
     [Fact]
     public async Task Bootstrap_is_one_time_and_requires_the_configured_secret()
     {

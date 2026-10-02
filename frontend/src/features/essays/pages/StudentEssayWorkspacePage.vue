@@ -33,7 +33,7 @@
             <section class="panel">
               <div class="panel-heading">
                 <div><h2>{{ group.name }}</h2><span>{{ group.members?.length || group.memberIds?.length || 0 }} thành viên</span></div>
-                <StatusPill :value="group.status" />
+                <StatusPill :value="group.status" :labels="enumLabels.essayGroupStatus" />
               </div>
               <div class="student-essay-members">
                 <span v-for="member in group.members || []" :key="member.studentId" class="student-essay-member">
@@ -43,7 +43,7 @@
             </section>
 
             <section class="panel student-essay-topic">
-              <div class="panel-heading"><div><h2>Đề tài</h2><span>Trạng thái phê duyệt</span></div><StatusPill v-if="topic" :value="topic.status" /><span v-else class="cell-subtle">Chưa đăng ký</span></div>
+              <div class="panel-heading"><div><h2>Đề tài</h2><span>Trạng thái phê duyệt</span></div><StatusPill v-if="topic" :value="topic.status" :labels="enumLabels.essayTopicStatus" /><span v-else class="cell-subtle">Chưa đăng ký</span></div>
               <strong v-if="topic?.canonicalTitle">{{ topic.canonicalTitle }}</strong>
               <strong v-else-if="topic?.proposedTitle">{{ topic.proposedTitle }}</strong>
               <span v-else class="cell-subtle">Nhóm chưa đăng ký đề tài.</span>
@@ -62,7 +62,7 @@
               <div v-if="submissions.length" class="list-compact">
                 <div v-for="submission in submissions" :key="submission.id" class="list-compact-item">
                   <div><strong>Phiên bản {{ submission.version }}{{ submission.fileName ? ` · ${submission.fileName}` : '' }}</strong><span>{{ submission.uploadedAt ? formatDateTime(submission.uploadedAt) : '—' }}</span></div>
-                  <div class="card-actions"><StatusPill :value="submission.status" /><span v-if="submission.validationMessage" class="cell-subtle">{{ submission.validationMessage }}</span></div>
+                  <div class="card-actions"><StatusPill :value="submission.status" :labels="enumLabels.essaySubmissionStatus" /><span v-if="submission.errors?.length" class="cell-subtle">{{ submission.errors.map(translateErrorMessage).join(' · ') }}</span><span v-else-if="submission.validationMessage" class="cell-subtle">{{ translateErrorMessage(submission.validationMessage) }}</span></div>
                 </div>
               </div>
               <div v-else class="empty-state"><strong>Chưa có báo cáo</strong><span>Nộp phiên bản đầu tiên khi đề tài đã được khóa.</span></div>
@@ -93,8 +93,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import StatusPill from '../../../shared/ui/StatusPill.vue'
 import { essayApi } from '../../../shared/api/client'
-import { errorMessage } from '../../../shared/api/http'
-import { formatDateTime, type EssayAssignment, type EssayGroup, type EssaySubmission, type EssayTopic } from '../../../shared/types'
+import { errorMessage, translateErrorMessage } from '../../../shared/api/http'
+import { enumLabels, formatDateTime, type EssayAssignment, type EssayGroup, type EssaySubmission, type EssayTopic } from '../../../shared/types'
 
 type GradeResult = { score: number; maxScore: number; feedback?: string }
 const route = useRoute()

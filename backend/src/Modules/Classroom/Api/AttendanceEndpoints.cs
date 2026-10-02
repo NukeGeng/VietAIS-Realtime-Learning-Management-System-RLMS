@@ -29,6 +29,7 @@ public static class AttendanceEndpoints
         HttpContext context,
         IQuerySession session,
         IAcademicDirectory academics,
+        IIdentityDirectory identity,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -62,7 +63,16 @@ public static class AttendanceEndpoints
             .CountAsync(enrollment => enrollment.OrganizationId == actor.OrganizationId &&
                 enrollment.LearningClassId == liveSession.LearningClassId &&
                 enrollment.Status == EnrollmentStatus.Active, cancellationToken);
-        return Results.Ok(AttendanceSummaryResponse.From(records, totalStudents));
+        var names = await identity.FindMemberNamesAsync(actor.OrganizationId,
+            records.Select(record => record.StudentId).ToArray(), cancellationToken);
+        var response = AttendanceSummaryResponse.From(records, totalStudents);
+        return Results.Ok(response with
+        {
+            Records = response.Records.Select(record => record with
+            {
+                StudentDisplayName = names.GetValueOrDefault(record.StudentId)
+            }).ToArray()
+        });
     }
 
     private static async Task<IResult> AdjustAttendanceAsync(
@@ -194,11 +204,17 @@ public sealed record AttendanceRecordResponse(
     int ReconnectCount,
     IReadOnlyList<AttendanceSegmentResponse> Segments)
 {
+    public string? StudentDisplayName { get; init; }
+    public DateTimeOffset? LateCutoffAt { get; init; }
+
     public static AttendanceRecordResponse From(AttendanceRecord record) => new(record.Id,
         record.LiveSessionId, record.StudentId, record.FirstJoinedAt, record.LastLeftAt,
         record.TotalDuration, record.Status, record.AdjustedBy, record.AdjustmentReason,
         record.ReconnectCount,
-        (record.Segments ?? []).Select(AttendanceSegmentResponse.From).ToArray());
+        (record.Segments ?? []).Select(AttendanceSegmentResponse.From).ToArray())
+    {
+        LateCutoffAt = record.LateCutoffAt
+    };
 }
 
 public sealed record AttendanceSegmentResponse(

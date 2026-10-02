@@ -40,23 +40,24 @@
           <StatusPill :value="mode === 'interactive' && submitted ? 'Chỉ xem' : attempt.status" :labels="statusLabels" />
         </div>
         <h2>{{ viewedQuestion.prompt }}</h2>
+        <p v-if="isMultipleChoice" class="choice-hint">Chọn một hoặc nhiều đáp án. Cần giữ ít nhất một đáp án đã chọn.</p>
         <div v-if="viewedQuestion.options?.length" class="choice-list">
           <label
             v-for="option in viewedQuestion.options"
             :key="option.key"
             class="choice"
-            :class="{ selected: displayedAnswer === option.key }"
+            :class="{ selected: isOptionSelected(option.key) }"
           >
             <input
               v-if="mode === 'interactive'"
-              type="radio"
+              :type="isMultipleChoice ? 'checkbox' : 'radio'"
               :name="viewedQuestion.id"
               :value="option.key"
-              :checked="displayedAnswer === option.key"
-              :disabled="saving || submitted"
-              @change="selectAnswer(option.key)"
+              :checked="isOptionSelected(option.key)"
+              :disabled="saving || submitted || isLastSelectedOption(option.key)"
+              @change="selectOption(option.key, ($event.target as HTMLInputElement).checked)"
             />
-            <span v-else class="observer-radio" aria-hidden="true"></span>
+            <span v-else class="observer-radio" :class="{ 'observer-checkbox': isMultipleChoice }" :role="isMultipleChoice ? 'checkbox' : 'radio'" :aria-checked="isOptionSelected(option.key)" aria-disabled="true" :aria-label="option.text"></span>
             <span>{{ option.text }}</span>
           </label>
         </div>
@@ -118,15 +119,20 @@ const questions = computed(() => {
 })
 const totalQuestions = computed(() => props.activity.questions.length)
 const progress = computed(() => Math.round(props.attempt.answeredCount / Math.max(1, totalQuestions.value) * 100))
-const studentLabel = computed(() => `Sinh viên ${props.attempt.studentId.slice(0, 8)}`)
+const studentLabel = computed(() => 'studentDisplayName' in props.attempt && props.attempt.studentDisplayName || 'Học viên chưa có tên')
 const viewedIndex = computed(() => {
   const index = questions.value.findIndex(question => question.id === viewedQuestionId.value)
   return index >= 0 ? index : 0
 })
 const viewedQuestion = computed(() => questions.value[viewedIndex.value])
+const isMultipleChoice = computed(() => viewedQuestion.value?.type === 1 || viewedQuestion.value?.type === '1' || viewedQuestion.value?.type === 'MultipleChoice')
 const displayedAnswer = computed(() => props.mode === 'observer'
   ? (viewedQuestion.value ? props.attempt.answers[viewedQuestion.value.id] || '' : '')
   : interactiveAnswer.value)
+const selectedOptionKeys = computed(() => {
+  const selected = new Set(displayedAnswer.value.split(',').map(value => value.trim().toLowerCase()).filter(Boolean))
+  return (viewedQuestion.value?.options || []).filter(option => selected.has(option.key.toLowerCase())).map(option => option.key)
+})
 const formatLastActivity = computed(() => {
   const value = new Date(props.attempt.lastActivityAt)
   return Number.isNaN(value.getTime()) ? 'vừa cập nhật' : value.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
@@ -158,9 +164,30 @@ function selectQuestion(questionId: string) {
 }
 
 function selectAnswer(value: string) {
-  if (props.mode !== 'interactive' || !viewedQuestion.value || props.submitted) return
+  if (props.mode !== 'interactive' || !viewedQuestion.value || props.saving || props.submitted) return
   interactiveAnswer.value = value
   emit('select-answer', viewedQuestion.value.id, value)
+}
+
+function isOptionSelected(key: string) {
+  return isMultipleChoice.value ? selectedOptionKeys.value.includes(key) : displayedAnswer.value === key
+}
+
+function isLastSelectedOption(key: string) {
+  return isMultipleChoice.value && selectedOptionKeys.value.length === 1 && isOptionSelected(key)
+}
+
+function selectOption(key: string, checked: boolean) {
+  if (props.mode !== 'interactive' || props.saving || props.submitted || !viewedQuestion.value?.options.some(option => option.key === key)) return
+  if (!isMultipleChoice.value) {
+    if (checked) selectAnswer(key)
+    return
+  }
+  const selected = new Set(selectedOptionKeys.value)
+  if (checked) selected.add(key)
+  else selected.delete(key)
+  if (!selected.size) return
+  selectAnswer([...selected].sort().join(','))
 }
 
 function toggleFollowing() {
@@ -169,7 +196,7 @@ function toggleFollowing() {
 }
 
 watch(() => props.attempt.currentQuestionId, syncViewedQuestion, { immediate: true })
-watch(() => props.attempt.answers, () => {
+watch(() => viewedQuestion.value && props.attempt.answers[viewedQuestion.value.id], () => {
   if (props.mode === 'interactive' && viewedQuestion.value) interactiveAnswer.value = props.attempt.answers[viewedQuestion.value.id] || ''
 })
 watch(() => props.mode, () => {
@@ -200,11 +227,15 @@ watch(() => props.mode, () => {
 .attempt-question-panel { min-height: 500px; padding: 28px; }
 .attempt-question-panel h2 { margin: 10px 0 22px; font-size: 22px; line-height: 1.4; }
 .choice-list { display: grid; gap: 10px; }
+.choice-hint { margin: -10px 0 14px; color: var(--text-3); font-size: 12px; }
 .choice { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-2); }
 .choice.selected { border-color: var(--brand); background: var(--brand-soft); color: var(--text); }
 .choice input { accent-color: var(--brand); }
 .observer-radio { width: 15px; height: 15px; flex: 0 0 15px; border: 1px solid var(--text-3); border-radius: 50%; }
 .choice.selected .observer-radio { border: 4px solid var(--brand); }
+.observer-checkbox { border-radius: 3px; }
+.choice.selected .observer-checkbox { border: 1px solid var(--brand); background: var(--brand); }
+.choice.selected .observer-checkbox::after { content: '✓'; display: block; color: white; font-size: 11px; line-height: 13px; text-align: center; }
 .observer-text-answer { min-height: 100px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-2); }
 .question-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 28px; }
 .observer-view-state { color: var(--text-3); font-size: 11px; }

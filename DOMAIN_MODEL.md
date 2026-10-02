@@ -395,6 +395,7 @@ AttendanceRecord
     LiveSessionId
     StudentId
     FirstJoinedAt?
+    LateCutoffAt?
     LastLeftAt?
     TotalDuration
     Status
@@ -423,6 +424,17 @@ segment khi connection cuối cùng rời đi; nó không thay thế presence. J
 rời và thời lượng). `ReconnectCount` là số lần mở lại sau segment đầu tiên. Ngưỡng
 đi muộn được chốt trên `LiveSession.LateAfterMinutes` để một lần reconnect không làm
 thay đổi luật của phiên khác.
+
+`LateCutoffAt` lưu mốc tính trễ đã dùng khi ghi nhận lần vào đầu tiên. Mốc lấy theo
+lịch học (hoặc thời gian bắt đầu thực tế nếu phiên mở sau khi lịch đã kết thúc),
+cộng ngưỡng trễ của phiên. Reconnect giữ nguyên mốc; sửa lịch sau này không tính
+lại lịch sử. Bản ghi cũ không có mốc vẫn giữ trạng thái durable, không tự backfill
+hoặc đoán thời lượng trễ khi không có đủ bằng chứng.
+
+Các API đọc roster, tổng quan hoạt động, chi tiết đang quan sát, sổ điểm và điểm
+danh có thêm `StudentDisplayName`. Tên được resolve qua public Identity query
+contract theo batch sau kiểm tra quyền và tenant; không lưu bản sao User trong
+aggregate/projection, không thêm answer detail vào overview.
 
 # 10.1. RaiseHand
 

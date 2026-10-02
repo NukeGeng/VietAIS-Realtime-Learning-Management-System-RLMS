@@ -10,6 +10,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '../../../shared/api/http'
 import { computed, onMounted, reactive, ref } from 'vue'
 import StatusPill from '../../../shared/ui/StatusPill.vue'
 import { academicsApi } from '../../../shared/api/client'
@@ -22,6 +23,6 @@ const form = reactive({ courseId: '', code: '', name: '', startDate: '', endDate
 const canManage = computed(() => auth.has('academics.classes.manage')); const filtered = computed(() => classes.value.filter(item => `${item.code} ${item.name}`.toLowerCase().includes(query.value.toLowerCase())))
 function dateRange(item: LearningClass) { return `${formatDate(item.startDate)} – ${formatDate(item.endDate)}` }
 async function load() { loading.value = true; error.value = ''; const results = await Promise.allSettled([academicsApi.classes(), academicsApi.courses()]); if (results[0].status === 'fulfilled') classes.value = results[0].value; if (results[1].status === 'fulfilled') courses.value = results[1].value; if (results[0].status === 'rejected') error.value = 'Không tải được lớp học.'; loading.value = false }
-async function create() { busy.value = true; try { const created = await academicsApi.createClass(form); classes.value.unshift(created); showForm.value = false; form.courseId = ''; form.code = ''; form.name = ''; form.startDate = ''; form.endDate = '' } catch (cause) { error.value = String((cause as Error)?.message || 'Không tạo được lớp học.') } finally { busy.value = false } }
+async function create() { busy.value = true; try { const created = await academicsApi.createClass(form); classes.value.unshift(created); showForm.value = false; form.courseId = ''; form.code = ''; form.name = ''; form.startDate = ''; form.endDate = '' } catch (cause) { error.value = errorMessage(cause) || 'Không tạo được lớp học.' } finally { busy.value = false } }
 onMounted(load)
 </script>

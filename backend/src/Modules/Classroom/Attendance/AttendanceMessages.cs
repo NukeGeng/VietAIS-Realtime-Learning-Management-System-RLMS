@@ -153,6 +153,8 @@ public static class AttendanceParticipantJoinedHandler
         var inserted = false;
         if (record is null)
         {
+            var lateCutoff = await AttendanceHandlerRules.ResolveLateCutoffAsync(session, liveSession,
+                cancellationToken);
             record = new AttendanceRecord
             {
                 Id = id,
@@ -160,10 +162,10 @@ public static class AttendanceParticipantJoinedHandler
                 LiveSessionId = message.LiveSessionId,
                 StudentId = message.StudentId,
                 FirstJoinedAt = message.JoinedAt,
+                LateCutoffAt = lateCutoff,
                 CurrentJoinedAt = message.JoinedAt,
                 TotalDuration = TimeSpan.Zero,
-                Status = await AttendanceHandlerRules.IsLateAsync(session, liveSession, message.JoinedAt,
-                    cancellationToken)
+                Status = lateCutoff is not null && message.JoinedAt > lateCutoff
                     ? AttendanceStatus.Late
                     : AttendanceStatus.Present,
                 ActiveConnectionIds = [connectionId],
@@ -179,6 +181,15 @@ public static class AttendanceParticipantJoinedHandler
             if (record.FirstJoinedAt is null || message.JoinedAt < record.FirstJoinedAt)
             {
                 record.FirstJoinedAt = message.JoinedAt;
+                // A delayed earlier join can correct an automatic Late status.
+                // Use the frozen cutoff; legacy/manual records keep their history.
+                if (record.LateCutoffAt is { } cutoff &&
+                    record.Status is AttendanceStatus.Present or AttendanceStatus.Late)
+                {
+                    record.Status = message.JoinedAt > cutoff
+                        ? AttendanceStatus.Late
+                        : AttendanceStatus.Present;
+                }
             }
 
             // Repeated join events are idempotent. A new open segment is only
@@ -196,8 +207,9 @@ public static class AttendanceParticipantJoinedHandler
 
             if (record.Status == AttendanceStatus.Absent)
             {
-                record.Status = await AttendanceHandlerRules.IsLateAsync(session, liveSession,
-                    record.FirstJoinedAt.Value, cancellationToken)
+                record.LateCutoffAt ??= await AttendanceHandlerRules.ResolveLateCutoffAsync(session,
+                    liveSession, cancellationToken);
+                record.Status = record.LateCutoffAt is not null && record.FirstJoinedAt > record.LateCutoffAt
                     ? AttendanceStatus.Late
                     : AttendanceStatus.Present;
             }
@@ -438,28 +450,25 @@ internal static class AttendanceConnection
 
 public static class AttendanceHandlerRules
 {
-    public static async Task<bool> IsLateAsync(
-        IDocumentSession session,
-        LiveSession liveSession,
-        DateTimeOffset joinedAt,
-        CancellationToken cancellationToken)
+    public static async Task<DateTimeOffset?> ResolveLateCutoffAsync(
+        IDocumentSession session, LiveSession liveSession, CancellationToken cancellationToken)
     {
-        ClassSchedule? schedule = null;
-        if (liveSession.ClassScheduleId is { } scheduleId)
-        {
-            schedule = await session.LoadAsync<ClassSchedule>(scheduleId, cancellationToken);
-        }
+        var schedule = liveSession.ClassScheduleId is { } scheduleId
+            ? await session.LoadAsync<ClassSchedule>(scheduleId, cancellationToken)
+            : null;
+        return LateCutoff(liveSession, schedule);
+    }
+
+    public static DateTimeOffset? LateCutoff(LiveSession liveSession, ClassSchedule? schedule)
+    {
         var startsAt = schedule?.StartsAt ?? liveSession.StartedAt;
-        // A room created after the planned occurrence has already ended is a
-        // new runtime occurrence. Use its durable start as the baseline instead
-        // of turning the stale schedule date into thousands of late minutes.
+        // A room opened after a planned occurrence uses its actual runtime start.
         if (schedule is not null && liveSession.StartedAt is { } runtimeStart &&
             runtimeStart > schedule.EndsAt)
-        {
             startsAt = runtimeStart;
-        }
-        return startsAt is not null && joinedAt > startsAt.Value.AddMinutes(liveSession.LateAfterMinutes);
+        return startsAt?.AddMinutes(liveSession.LateAfterMinutes);
     }
+
 }
 
 internal static class AttendanceHistory

@@ -51,7 +51,7 @@ export const academicsApi = {
     request<LearningClass>({ method: 'post', url: '/api/academics/classes', data: body }),
   assignTeacher: (classId: string, teacherId: string) => request<unknown>({ method: 'post', url: `/api/academics/classes/${classId}/teachers`, data: { teacherId } }),
   removeTeacher: (classId: string, teacherId: string) => request<void>({ method: 'delete', url: `/api/academics/classes/${classId}/teachers/${teacherId}` }),
-  enrollments: (classId: string) => list<{ id: string; studentId: string; status: string | number; enrolledAt: string }>(`/api/academics/classes/${classId}/enrollments`),
+  enrollments: (classId: string) => list<{ id: string; studentId: string; studentDisplayName?: string; status: string | number; enrolledAt: string }>(`/api/academics/classes/${classId}/enrollments`),
   enrollStudent: (classId: string, studentId: string) => request<unknown>({ method: 'post', url: `/api/academics/classes/${classId}/enrollments`, data: { studentId } }),
   dropStudent: (classId: string, studentId: string) => request<void>({ method: 'delete', url: `/api/academics/classes/${classId}/enrollments/${studentId}` }),
   schedules: (classId: string, includeHistory = false) => list<Schedule>(`/api/academics/classes/${classId}/schedules?includeHistory=${includeHistory ? 'true' : 'false'}`),

@@ -5,6 +5,11 @@ namespace LearningPlatform.Identity.Authorization;
 
 public interface IIdentityDirectory
 {
+    // Callers authorize the class/attempt first and pass only its member IDs.
+    // Historical rows may refer to disabled accounts, so name lookup retains them.
+    Task<IReadOnlyDictionary<Guid, string>> FindMemberNamesAsync(Guid organizationId,
+        IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default);
+
     Task<IdentityMember?> FindActiveMemberAsync(Guid organizationId, Guid userId,
         CancellationToken cancellationToken = default);
 
@@ -16,6 +21,21 @@ public sealed record IdentityMember(Guid Id, Guid OrganizationId, string Display
 
 public sealed class IdentityDirectory(IDocumentStore store) : IIdentityDirectory
 {
+    public async Task<IReadOnlyDictionary<Guid, string>> FindMemberNamesAsync(Guid organizationId,
+        IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default)
+    {
+        var ids = userIds.Where(id => id != Guid.Empty).Distinct().ToArray();
+        if (organizationId == Guid.Empty || ids.Length == 0)
+            return new Dictionary<Guid, string>();
+
+        await using var tenant = store.QuerySession(organizationId.ToString("D"));
+        var accounts = await tenant.Query<UserAccount>()
+            .Where(account => account.OrganizationId == organizationId && ids.Contains(account.Id))
+            .Select(account => new { account.Id, account.DisplayName })
+            .ToListAsync(cancellationToken);
+        return accounts.ToDictionary(account => account.Id, account => account.DisplayName);
+    }
+
     public async Task<IdentityMember?> FindActiveMemberAsync(
         Guid organizationId, Guid userId, CancellationToken cancellationToken = default)
     {

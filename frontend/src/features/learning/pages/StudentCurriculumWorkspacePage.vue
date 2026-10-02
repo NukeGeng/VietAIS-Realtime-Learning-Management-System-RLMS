@@ -36,7 +36,7 @@
           <template v-else-if="lesson">
             <div class="course-lesson-header"><div><span class="course-detail-kicker">{{ lesson.moduleTitle }}</span><h2>{{ lesson.title }}</h2></div><span class="course-lesson-status-label">{{ statusLabel(lesson.status) }}</span></div>
             <div class="course-lesson-content"><p>{{ lesson.contentSummary || 'Bài học chưa có phần mô tả.' }}</p></div>
-            <div v-if="lesson.resources.length" class="course-lesson-resources"><h3>Tài nguyên bài học</h3><a v-for="resource in lesson.resources" :key="resource.id" class="course-resource-row" :href="resource.accessUrl || resource.externalUrl || undefined" target="_blank" rel="noreferrer"><span><strong>{{ resource.title }}</strong><small>{{ resource.fileName || resource.description || enumLabel(resource.type) }}</small></span><span aria-hidden="true">↗</span></a></div>
+            <div v-if="lesson.resources.length" class="course-lesson-resources"><h3>Tài nguyên bài học</h3><a v-for="resource in lesson.resources" :key="resource.id" class="course-resource-row" :href="resource.accessUrl || resource.externalUrl || undefined" target="_blank" rel="noreferrer"><span><strong>{{ resource.title }}</strong><small>{{ resource.fileName || resource.description || enumLabel(resource.type, enumLabels.resourceType) }}</small></span><span aria-hidden="true">↗</span></a></div>
             <div v-else class="course-lesson-resources course-lesson-resources-empty"><h3>Tài nguyên bài học</h3><span>Chưa có tài nguyên đính kèm.</span></div>
             <div class="course-lesson-actions"><span v-if="lessonMessage" class="cell-subtle">{{ lessonMessage }}</span><button class="button primary" :disabled="progressBusy || isCompleted(lesson.status)" @click="completeLesson">{{ isCompleted(lesson.status) ? 'Đã hoàn thành' : progressBusy ? 'Đang lưu…' : 'Đánh dấu hoàn thành' }}</button></div>
           </template>
@@ -52,7 +52,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { learningApi } from '../../../shared/api/client'
 import { errorMessage } from '../../../shared/api/http'
-import { enumLabel, type StudentCurriculumContent, type StudentLessonDetail, type StudentLessonSummary } from '../../../shared/types'
+import { enumLabels, enumLabel, type StudentCurriculumContent, type StudentLessonDetail, type StudentLessonSummary } from '../../../shared/types'
 import { useAuthStore } from '../../../shared/stores/auth'
 import { useNavigationStore } from '../../../shared/stores/navigation'
 

@@ -177,7 +177,9 @@ export interface AttendanceRecord {
   id: string
   liveSessionId: string
   studentId: string
+  studentDisplayName?: string
   firstJoinedAt?: string
+  lateCutoffAt?: string
   lastLeftAt?: string
   totalDuration: string
   status: string | number
@@ -297,6 +299,7 @@ export interface StudentActivity {
 
 export interface OverviewStudent {
   studentId: string
+  studentDisplayName?: string
   attemptId: string
   currentQuestionId?: string
   answeredCount: number
@@ -323,6 +326,7 @@ export interface StudentDetail {
   attemptId?: string
   organizationId: string
   studentId: string
+  studentDisplayName?: string
   attemptNumber: number
   activityId: string
   learningClassId: string
@@ -358,6 +362,7 @@ export interface GradebookItem {
 
 export interface GradebookStudent {
   studentId: string
+  studentDisplayName?: string
   average?: number
   weightedAverage?: number
   finalScore?: number
@@ -491,12 +496,45 @@ export interface Notification {
   readAt?: string
 }
 
-export function enumLabel(value: string | number | undefined, labels: string[] = []): string {
-  if (typeof value === 'number') return labels[value] ?? String(value)
+// Numeric enum ordinals are meaningful only within their owning domain.
+export const enumLabels = {
+  organizationStatus: { Active: 'Đang hoạt động', Suspended: 'Tạm ngưng' },
+  accountStatus: { Active: 'Đang hoạt động', Disabled: 'Đã vô hiệu hóa' },
+  courseStatus: { Draft: 'Bản nháp', Published: 'Đã phát hành', Archived: 'Đã lưu trữ' },
+  academicContentStatus: { Draft: 'Bản nháp', Published: 'Đã phát hành', Archived: 'Đã lưu trữ' },
+  classStatus: { Preparing: 'Đang chuẩn bị', Active: 'Đang mở', Paused: 'Tạm dừng', Completed: 'Đã hoàn thành', Archived: 'Đã lưu trữ' },
+  enrollmentStatus: { Active: 'Đang học', Dropped: 'Đã rời lớp', Completed: 'Đã hoàn thành' },
+  scheduleStatus: { Scheduled: 'Đã lên lịch', Rescheduled: 'Đã đổi lịch', Cancelled: 'Đã hủy', Completed: 'Đã hoàn thành' },
+  liveSessionStatus: { Scheduled: 'Đã lên lịch', Started: 'Đã bắt đầu', Ended: 'Đã kết thúc', Cancelled: 'Đã hủy' },
+  attendanceStatus: { Present: 'Có mặt', Late: 'Đi trễ', Absent: 'Vắng', Excused: 'Có phép' },
+  activityKind: { Assignment: 'Bài tập', Exercise: 'Bài luyện tập', Quiz: 'Bài trắc nghiệm', Exam: 'Bài thi' },
+  activityStatus: { Draft: 'Bản nháp', Published: 'Đã phát hành', Paused: 'Tạm dừng', Closed: 'Đã đóng' },
+  questionBankStatus: { Active: 'Đang hoạt động', Archived: 'Đã lưu trữ' },
+  questionType: { SingleChoice: 'Một lựa chọn', MultipleChoice: 'Nhiều lựa chọn', TrueFalse: 'Đúng / Sai', ShortText: 'Trả lời ngắn', LongText: 'Tự luận' },
+  studentActivityStatus: { InProgress: 'Đang làm bài', Idle: 'Không hoạt động', Paused: 'Tạm dừng', Submitted: 'Đã nộp', Closed: 'Đã đóng' },
+  gradeEntryStatus: { Draft: 'Bản nháp', Published: 'Đã công bố' },
+  essayAssignmentStatus: { Draft: 'Bản nháp', Published: 'Đã phát hành', Closed: 'Đã đóng' },
+  essayGroupStatus: { Active: 'Đang hoạt động', Archived: 'Đã lưu trữ' },
+  essayTopicStatus: { Draft: 'Bản nháp', PendingReview: 'Chờ duyệt', ChangesRequested: 'Đã yêu cầu chỉnh sửa', Approved: 'Đã duyệt', Rejected: 'Đã từ chối', Locked: 'Đã khóa' },
+  essaySubmissionStatus: { Rejected: 'Không đạt kiểm tra', Submitted: 'Đã nộp', Superseded: 'Đã được thay thế', Graded: 'Đã chấm' },
+  helpRequestStatus: { Requested: 'Đang chờ hỗ trợ', Acknowledged: 'Đã tiếp nhận', Resolved: 'Đã xử lý' },
+  lessonProgressStatus: { InProgress: 'Đang học', Completed: 'Đã hoàn thành' },
+  learningProgressStatus: { InProgress: 'Đang thực hiện', Completed: 'Đã hoàn thành' },
+  resourceType: { Document: 'Tài liệu', Slide: 'Trang trình chiếu', Video: 'Video', Attachment: 'Tệp đính kèm', Recording: 'Bản ghi' },
+  resourceStatus: { Draft: 'Bản nháp', Published: 'Đã phát hành', Archived: 'Đã lưu trữ' },
+  announcementStatus: { Draft: 'Bản nháp', Published: 'Đã công bố', Archived: 'Đã lưu trữ' }
+} as const
+
+export type EnumLabelMap = readonly string[] | Readonly<Record<string, string>>
+
+export function enumLabel(value: string | number | null | undefined, labels: EnumLabelMap = []): string {
+  if (typeof value === 'number') return Object.values(labels)[value] ?? 'Chưa xác định'
   if (!value) return '—'
   const normalized = value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]/g, ' ')
+  const lookupKey = value.replace(/[\s_-]/g, '').toLowerCase()
   const labelsVi: Record<string, string> = {
     Active: 'Đang hoạt động',
+    Absent: 'Vắng',
     Acknowledged: 'Đã tiếp nhận',
     Approved: 'Đã duyệt',
     Archived: 'Đã lưu trữ',
@@ -509,6 +547,7 @@ export function enumLabel(value: string | number | undefined, labels: string[] =
     ChangesRequested: 'Đã yêu cầu chỉnh sửa',
     Disabled: 'Đã vô hiệu hóa',
     Expired: 'Đã hết hạn',
+    Ended: 'Đã kết thúc',
     Failed: 'Thất bại',
     Graded: 'Đã chấm',
     HelpRequested: 'Đang cần hỗ trợ',
@@ -534,6 +573,8 @@ export function enumLabel(value: string | number | undefined, labels: string[] =
     Open: 'Đang mở',
     Paused: 'Tạm dừng',
     Pending: 'Đang chờ',
+    PendingReview: 'Chờ duyệt',
+    Preparing: 'Đang chuẩn bị',
     Present: 'Có mặt',
     Published: 'Đã phát hành',
     Quiz: 'Bài trắc nghiệm',
@@ -551,12 +592,18 @@ export function enumLabel(value: string | number | undefined, labels: string[] =
     Muted: 'Đã tắt tiếng',
     NotAvailable: 'Chưa khả dụng',
     Rejected: 'Đã từ chối',
+    Requested: 'Đang chờ hỗ trợ',
+    Rescheduled: 'Đã đổi lịch',
     Resolved: 'Đã xử lý',
+    Superseded: 'Đã được thay thế',
+    Suspended: 'Tạm ngưng',
     Unmuted: 'Đã bật tiếng'
   }
+  const contextual = Object.entries(labels).find(([key]) => key.replace(/[\s_-]/g, '').toLowerCase() === lookupKey)
+  if (contextual) return contextual[1]
   const direct = labelsVi[value] || labelsVi[normalized]
   if (direct) return direct
-  const insensitive = Object.entries(labelsVi).find(([key]) => key.toLowerCase() === value.toLowerCase() || key.toLowerCase() === normalized.toLowerCase())
+  const insensitive = Object.entries(labelsVi).find(([key]) => key.replace(/[\s_-]/g, '').toLowerCase() === lookupKey)
   return insensitive?.[1] || normalized
 }
 

@@ -482,7 +482,7 @@ public static class AssessmentEndpoints
         Guid activityId,
         HttpContext context,
         IQuerySession session,
-        IAcademicDirectory academics,
+        IAcademicDirectory academics, IIdentityDirectory identity,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -514,10 +514,16 @@ public static class AssessmentEndpoints
         var view = await session.LoadAsync<ClassOverviewView>(
             AssessmentConstants.ClassOverviewViewId(classId, activityId), cancellationToken);
         var summaries = (view?.Students ?? []).ToDictionary(student => student.StudentId);
+        var names = await identity.FindMemberNamesAsync(actor.OrganizationId,
+            enrollments.Select(enrollment => enrollment.StudentId).ToArray(), cancellationToken);
         var students = enrollments.Select(enrollment => summaries.TryGetValue(enrollment.StudentId,
                 out var summary)
             ? ClassOverviewStudentResponse.From(summary)
             : ClassOverviewStudentResponse.NotStarted(enrollment.StudentId, activity.Questions.Count)).ToArray();
+        students = students.Select(student => student with
+        {
+            StudentDisplayName = names.GetValueOrDefault(student.StudentId)
+        }).ToArray();
         var questionProgress = activity.Questions.OrderBy(question => question.Order)
             .Select(question =>
             {
@@ -534,7 +540,7 @@ public static class AssessmentEndpoints
         Guid attemptId,
         HttpContext context,
         IQuerySession session,
-        IAcademicDirectory academics,
+        IAcademicDirectory academics, IIdentityDirectory identity,
         CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
@@ -572,11 +578,16 @@ public static class AssessmentEndpoints
             return Results.Forbid();
         }
 
-        return Results.Ok(StudentAttemptDetailResponse.From(detail));
+        var names = await identity.FindMemberNamesAsync(actor.OrganizationId, [detail.StudentId],
+            cancellationToken);
+        return Results.Ok(StudentAttemptDetailResponse.From(detail) with
+        {
+            StudentDisplayName = names.GetValueOrDefault(detail.StudentId)
+        });
     }
 
     private static async Task<IResult> ListHelpRequestsAsync(Guid classId, HttpContext context,
-        IQuerySession session, IAcademicDirectory academics, CancellationToken cancellationToken)
+        IQuerySession session, IAcademicDirectory academics, IIdentityDirectory identity, CancellationToken cancellationToken)
     {
         if (!AuthenticatedActor.TryCreate(context.User, out var actor))
         {
@@ -614,11 +625,16 @@ public static class AssessmentEndpoints
             .Where(activity => activityIds.Contains(activity.Id))
             .ToListAsync(cancellationToken))
             .ToDictionary(activity => activity.Id);
+        var names = await identity.FindMemberNamesAsync(actor.OrganizationId,
+            requests.Select(request => request.StudentId).ToArray(), cancellationToken);
         return Results.Ok(requests
             .Where(request => attempts.ContainsKey(request.StudentActivityId) &&
                 activities.ContainsKey(request.ActivityId))
             .Select(request => HelpRequestResponse.From(request,
-                attempts[request.StudentActivityId], activities[request.ActivityId]))
+                attempts[request.StudentActivityId], activities[request.ActivityId]) with
+            {
+                StudentDisplayName = names.GetValueOrDefault(request.StudentId)
+            })
             .ToArray());
     }
 
@@ -1866,6 +1882,8 @@ public sealed record ClassOverviewStudentResponse(Guid StudentId, Guid AttemptId
     StudentActivityStatus? Status, DateTimeOffset? LastActivityAt, bool HelpRequested, long Version,
     int AttemptNumber = 1)
 {
+    public string? StudentDisplayName { get; init; }
+
     public static ClassOverviewStudentResponse From(ClassOverviewStudent student) => new(student.StudentId,
         student.AttemptId, student.CurrentQuestionId, student.AnsweredCount, student.TotalQuestions,
         student.Progress, student.Status, student.LastActivityAt, student.HelpRequested, student.Version,
@@ -1885,6 +1903,8 @@ public sealed record StudentAttemptDetailResponse(Guid Id, Guid OrganizationId, 
     DateTimeOffset? SubmittedAt, long Version, bool HelpRequested = false,
     DateTimeOffset? HelpRequestedAt = null, DateTimeOffset? HelpAcknowledgedAt = null)
 {
+    public string? StudentDisplayName { get; init; }
+
     public static StudentAttemptDetailResponse From(StudentAttemptDetailView detail) => new(detail.Id,
         detail.OrganizationId, detail.StudentId, detail.AttemptNumber, detail.ActivityId,
         detail.LearningClassId,
@@ -1900,6 +1920,8 @@ public sealed record HelpRequestResponse(Guid AttemptId, Guid StudentId, Guid Ac
     HelpRequestStatus HelpStatus, DateTimeOffset? ResolvedAt, Guid? HandledBy,
     double WaitDurationSeconds)
 {
+    public string? StudentDisplayName { get; init; }
+
     public static HelpRequestResponse From(HelpRequest request, StudentActivity attempt,
         AssessmentActivity activity)
     {
