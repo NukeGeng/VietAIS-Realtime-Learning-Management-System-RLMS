@@ -1,8 +1,15 @@
 <template>
   <div class="student-essay-workspace">
-    <div class="student-essay-toolbar">
+    <div class="toolbar page-toolbar student-essay-toolbar">
       <button type="button" class="button secondary" @click="backToClass">Về tiểu luận lớp</button>
-      <span class="cell-subtle">Bài tiểu luận của bạn</span>
+      <div class="student-essay-assignment">
+        <strong class="cell-primary">{{ assignment?.title || 'Bài tiểu luận của bạn' }}</strong>
+        <span v-if="assignment" class="cell-subtle">{{ assignment.description || 'Hoàn thành và nộp báo cáo theo hướng dẫn của giảng viên.' }}</span>
+      </div>
+      <div v-if="assignment" class="student-essay-deadline">
+        <span>Hạn nộp</span>
+        <strong>{{ assignment.deadline ? formatDateTime(assignment.deadline) : 'Chưa đặt' }}</strong>
+      </div>
     </div>
 
     <div v-if="error" class="error-banner">
@@ -12,17 +19,6 @@
     <div v-if="loading" class="loading-state">Đang tải bài tiểu luận…</div>
 
     <template v-else-if="assignment">
-      <header class="student-essay-heading">
-        <div>
-          <h1>{{ assignment.title }}</h1>
-          <p>{{ assignment.description || 'Hoàn thành và nộp báo cáo theo hướng dẫn của giảng viên.' }}</p>
-        </div>
-        <div class="student-essay-deadline">
-          <span>Hạn nộp</span>
-          <strong>{{ assignment.deadline ? formatDateTime(assignment.deadline) : 'Chưa đặt' }}</strong>
-        </div>
-      </header>
-
       <div v-if="!group" class="panel empty-state">
         <strong>Bạn chưa thuộc nhóm cho bài này</strong>
         <span>Liên hệ giảng viên để được thêm vào nhóm trước khi nộp báo cáo.</span>

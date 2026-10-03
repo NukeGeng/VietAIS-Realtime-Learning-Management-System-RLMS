@@ -65,14 +65,6 @@
 
       <div v-if="loadingAssignments" class="loading-state">Đang tải bài tiểu luận…</div>
       <template v-else>
-        <div class="panel-heading essay-assignments-heading">
-          <div>
-            <h2>Bài tiểu luận</h2>
-            <span>Danh sách bài của lớp đang chọn</span>
-          </div>
-          <span>{{ assignments.length }} bài</span>
-        </div>
-
         <div v-if="assignments.length" class="cards-grid">
           <article v-for="assignment in assignments" :key="assignment.id" class="activity-card essay-assignment-card">
             <div class="card-topline">
