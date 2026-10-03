@@ -92,26 +92,42 @@
 
         <div v-if="selectedAssignment" class="grid-two essay-detail-grid">
           <section class="panel">
-            <div class="panel-heading">
+            <div class="panel-heading essay-groups-heading">
               <div>
                 <h2>{{ selectedAssignment.title }}</h2>
                 <span>{{ groups.length }} nhóm</span>
               </div>
-              <div class="card-actions">
+              <div class="card-actions essay-groups-heading-actions">
                 <button v-if="canManage" class="mini-button" @click="publishAssignment">Phát hành</button>
                 <button v-if="auth.role === 'student' || canManage" class="mini-button" @click="createGroup">Tạo nhóm</button>
               </div>
             </div>
             <div v-if="groups.length" class="list-compact">
-              <div v-for="group in groups" :key="group.id" class="list-compact-item">
-                <div>
+              <button
+                v-for="group in visibleGroups"
+                :key="group.id"
+                class="essay-group-row"
+                :class="{ active: selectedGroup?.id === group.id }"
+                type="button"
+                :aria-pressed="selectedGroup?.id === group.id"
+                @click="selectGroup(group)"
+              >
+                <span class="essay-group-copy">
                   <strong>{{ group.name || `Nhóm ${group.id.slice(0, 6)}` }}</strong>
-                  <span>{{ memberCount(group) }} thành viên · {{ topicLabel(group) }}</span>
-                </div>
-                <button class="mini-button" @click="selectGroup(group)">
+                  <span class="essay-group-summary">{{ memberCount(group) }} thành viên · {{ topicLabel(group) }}</span>
+                </span>
+                <span class="essay-group-open-state" :class="{ active: selectedGroup?.id === group.id }">
                   {{ selectedGroup?.id === group.id ? 'Đang mở' : 'Mở nhóm' }}
-                </button>
-              </div>
+                </span>
+              </button>
+              <nav v-if="groupPageCount > 1" class="essay-group-pagination" aria-label="Phân trang nhóm">
+                <span>Nhóm {{ groupPageStart }}–{{ groupPageEnd }} trong {{ groups.length }}</span>
+                <div class="essay-group-pagination-controls">
+                  <button class="mini-button" type="button" aria-label="Trang trước" :disabled="groupPage <= 1" @click="groupPage--">‹</button>
+                  <span>Trang {{ groupPage }} / {{ groupPageCount }}</span>
+                  <button class="mini-button" type="button" aria-label="Trang sau" :disabled="groupPage >= groupPageCount" @click="groupPage++">›</button>
+                </div>
+              </nav>
             </div>
             <div v-else class="empty-state">
               <strong>Chưa có nhóm</strong>
@@ -242,6 +258,7 @@ const selectedClassId = ref('')
 const assignments = ref<EssayAssignment[]>([])
 const selectedAssignment = ref<EssayAssignment | null>(null)
 const groups = ref<EssayGroup[]>([])
+const groupPage = ref(1)
 const selectedGroup = ref<EssayGroup | null>(null)
 const topic = ref<EssayTopic | null>(null)
 const submissions = ref<EssaySubmission[]>([])
@@ -257,13 +274,20 @@ const error = ref('')
 const showForm = ref(false)
 const uploadState = ref('')
 const assignmentRequest = ref(0)
+const groupRequest = ref(0)
+const groupDetailRequest = ref(0)
 const form = reactive({ title: '', description: '', deadline: '', maxScore: 100, maxGroupSize: 4 })
 const gradeForm = reactive({ score: 0, feedback: '' })
+const groupsPerPage = 5
 const canManage = computed(() => auth.has('assessment.activities.manage'))
 const selectedClass = computed(() => classes.value.find(item => item.id === selectedClassId.value))
 const selectedClassMeta = computed(() => classMetadata.value[selectedClassId.value])
 const selectedCourseName = computed(() => selectedClassMeta.value?.courseName || 'Môn học chưa xác định')
 const selectedStudentCount = computed(() => selectedClassMeta.value?.studentCount === undefined ? 'Sĩ số đang cập nhật' : `${selectedClassMeta.value.studentCount} sinh viên`)
+const groupPageCount = computed(() => Math.max(1, Math.ceil(groups.value.length / groupsPerPage)))
+const visibleGroups = computed(() => groups.value.slice((groupPage.value - 1) * groupsPerPage, groupPage.value * groupsPerPage))
+const groupPageStart = computed(() => (groupPage.value - 1) * groupsPerPage + 1)
+const groupPageEnd = computed(() => Math.min(groupPage.value * groupsPerPage, groups.value.length))
 
 function memberCount(group: EssayGroup) { return group.members?.length ?? group.memberIds?.length ?? 0 }
 function topicLabel(group: EssayGroup) { return group.topicId ? 'Đã đăng ký đề tài' : 'Chưa có đề tài' }
@@ -307,7 +331,10 @@ function changeClass() {
   selectedClassId.value = ''
   assignments.value = []
   selectedAssignment.value = null
+  groupRequest.value++
+  groupDetailRequest.value++
   selectedGroup.value = null
+  groupPage.value = 1
   groups.value = []
   topic.value = null
   submissions.value = []
@@ -321,6 +348,9 @@ async function loadAssignments(classId: string) {
   error.value = ''
   assignments.value = []
   selectedAssignment.value = null
+  groupRequest.value++
+  groupDetailRequest.value++
+  groupPage.value = 1
   groups.value = []
   try {
     const result = await essayApi.assignments(classId)
@@ -356,11 +386,20 @@ async function createAssignment() {
 }
 
 async function selectAssignment(item: EssayAssignment) {
+  const requestId = ++groupRequest.value
+  groupDetailRequest.value++
   selectedAssignment.value = item
+  groupPage.value = 1
+  groups.value = []
   selectedGroup.value = null
   topic.value = null
   submissions.value = []
-  try { groups.value = await essayApi.groups(item.id) } catch (cause) { error.value = errorMessage(cause) || 'Không tải được nhóm.' }
+  try {
+    const result = await essayApi.groups(item.id)
+    if (requestId === groupRequest.value && selectedAssignment.value?.id === item.id) groups.value = result
+  } catch (cause) {
+    if (requestId === groupRequest.value) error.value = errorMessage(cause) || 'Không tải được nhóm.'
+  }
 }
 
 async function publishAssignment() {
@@ -384,14 +423,22 @@ async function closeAssignment(assignment: EssayAssignment) {
 
 async function createGroup() {
   if (!selectedAssignment.value) return
-  try { groups.value.push(await essayApi.createGroup(selectedAssignment.value.id, `Nhóm ${groups.value.length + 1}`)) } catch (cause) { error.value = errorMessage(cause) || 'Không tạo được nhóm.' }
+  const assignmentId = selectedAssignment.value.id
+  try {
+    const created = await essayApi.createGroup(assignmentId, `Nhóm ${groups.value.length + 1}`)
+    if (selectedAssignment.value?.id !== assignmentId) return
+    groups.value.push(created)
+    groupPage.value = groupPageCount.value
+  } catch (cause) { error.value = errorMessage(cause) || 'Không tạo được nhóm.' }
 }
 
 async function selectGroup(group: EssayGroup) {
+  const requestId = ++groupDetailRequest.value
   selectedGroup.value = group
   topic.value = null
   submissions.value = []
   const result = await Promise.allSettled([essayApi.topic(group.id), essayApi.submissions(group.id)])
+  if (requestId !== groupDetailRequest.value || selectedGroup.value?.id !== group.id) return
   if (result[0].status === 'fulfilled') topic.value = result[0].value
   if (result[1].status === 'fulfilled') submissions.value = result[1].value
 }
