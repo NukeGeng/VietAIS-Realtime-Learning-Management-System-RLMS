@@ -120,7 +120,8 @@
                   {{ selectedGroup?.id === group.id ? 'Đang mở' : 'Mở nhóm' }}
                 </span>
               </button>
-              <nav v-if="groupPageCount > 1" class="essay-group-pagination" aria-label="Phân trang nhóm">
+              <span v-for="slot in emptyGroupSlots" :key="`empty-${slot}`" class="essay-group-slot" aria-hidden="true" />
+              <nav class="essay-group-pagination" aria-label="Phân trang nhóm">
                 <span>Nhóm {{ groupPageStart }}–{{ groupPageEnd }} trong {{ groups.length }}</span>
                 <div class="essay-group-pagination-controls">
                   <button class="mini-button" type="button" aria-label="Trang trước" :disabled="groupPage <= 1" @click="groupPage--">‹</button>
@@ -286,6 +287,7 @@ const selectedCourseName = computed(() => selectedClassMeta.value?.courseName ||
 const selectedStudentCount = computed(() => selectedClassMeta.value?.studentCount === undefined ? 'Sĩ số đang cập nhật' : `${selectedClassMeta.value.studentCount} sinh viên`)
 const groupPageCount = computed(() => Math.max(1, Math.ceil(groups.value.length / groupsPerPage)))
 const visibleGroups = computed(() => groups.value.slice((groupPage.value - 1) * groupsPerPage, groupPage.value * groupsPerPage))
+const emptyGroupSlots = computed(() => Math.max(0, groupsPerPage - visibleGroups.value.length))
 const groupPageStart = computed(() => (groupPage.value - 1) * groupsPerPage + 1)
 const groupPageEnd = computed(() => Math.min(groupPage.value * groupsPerPage, groups.value.length))
 
