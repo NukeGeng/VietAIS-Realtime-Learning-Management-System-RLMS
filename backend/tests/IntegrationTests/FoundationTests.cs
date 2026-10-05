@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using Amazon.S3;
 using Amazon.S3.Model;
-using LearningPlatform.Identity.Authorization;
+using LearningPlatform.Identity.Api;
 using LearningPlatform.Infrastructure.Storage;
 using Marten;
 using Microsoft.AspNetCore.Http.Connections;
@@ -29,33 +29,33 @@ public sealed class FoundationTests(FoundationFixture fixture) : IClassFixture<F
     [Fact]
     public async Task Valid_cookie_returns_own_identity_and_modified_cookie_is_rejected()
     {
+        var expected = await fixture.EnsureBootstrappedAsync();
         using var client = fixture.Client();
-        var user = Guid.NewGuid();
-        var organization = Guid.NewGuid();
-        var cookie = fixture.Cookie(user, organization);
+        var cookie = await fixture.LoginCookieAsync();
         client.DefaultRequestHeaders.Add("Cookie", cookie);
-        var actor = await client.GetFromJsonAsync<AuthenticatedActor>("/api/identity/me");
-        Assert.Equal(user, actor!.UserId);
-        Assert.Equal(organization, actor.OrganizationId);
-        Assert.Empty(actor.Permissions);
+        var actor = await client.GetFromJsonAsync<AccountResponse>("/api/identity/me");
+        Assert.Equal(expected.AdministratorId, actor!.Id);
+        Assert.Equal(expected.OrganizationId, actor.OrganizationId);
+        Assert.Contains("identity.users.manage", actor.Permissions);
         client.DefaultRequestHeaders.Remove("Cookie");
         client.DefaultRequestHeaders.Add("Cookie", cookie[..(cookie.IndexOf('=') + 1)] + "corrupted");
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/identity/me")).StatusCode);
     }
 
     [Fact]
-    public async Task Empty_organization_cookie_is_forbidden()
+    public async Task Invalid_organization_cookie_is_rejected()
     {
         using var client = fixture.Client();
         client.DefaultRequestHeaders.Add("Cookie", fixture.Cookie(Guid.NewGuid(), Guid.Empty));
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/identity/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/identity/me")).StatusCode);
     }
 
     [Fact]
     public async Task Unsafe_request_requires_matching_antiforgery_token()
     {
+        await fixture.EnsureBootstrappedAsync();
         using var client = fixture.Client();
-        var authCookie = fixture.Cookie(Guid.NewGuid(), Guid.NewGuid());
+        var authCookie = await fixture.LoginCookieAsync();
         client.DefaultRequestHeaders.Add("Cookie", authCookie);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/api/probe", null)).StatusCode);
 
@@ -71,8 +71,9 @@ public sealed class FoundationTests(FoundationFixture fixture) : IClassFixture<F
     [Fact]
     public async Task Database_is_durable_and_http_session_cannot_cross_tenants()
     {
+        var organization = await fixture.EnsureBootstrappedAsync();
         var store = fixture.Services.GetRequiredService<IDocumentStore>();
-        var tenantA = Guid.NewGuid();
+        var tenantA = organization.OrganizationId;
         var tenantB = Guid.NewGuid();
         var id = Guid.NewGuid();
         await using (var write = store.LightweightSession(tenantA.ToString("D")))
@@ -82,15 +83,27 @@ public sealed class FoundationTests(FoundationFixture fixture) : IClassFixture<F
         }
 
         using var client = fixture.Client();
-        client.DefaultRequestHeaders.Add("Cookie", fixture.Cookie(Guid.NewGuid(), tenantA));
+        client.DefaultRequestHeaders.Add("Cookie", await fixture.LoginCookieAsync());
         var saved = await client.GetFromJsonAsync<TenantProbe>($"/api/probe/{id}");
         Assert.Equal("private", saved!.Value);
-        client.DefaultRequestHeaders.Remove("Cookie");
-        client.DefaultRequestHeaders.Add("Cookie", fixture.Cookie(Guid.NewGuid(), tenantB));
-        client.DefaultRequestHeaders.Add("X-Organization-Id", tenantA.ToString());
-        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/probe/{id}")).StatusCode);
+        client.DefaultRequestHeaders.Add("X-Organization-Id", tenantB.ToString());
+        var stillPrivate = await client.GetFromJsonAsync<TenantProbe>($"/api/probe/{id}");
+        Assert.Equal("private", stillPrivate!.Value);
         await using var query = store.QuerySession(tenantB.ToString("D"));
         Assert.Empty(await query.Query<TenantProbe>().Where(x => x.Id == id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Tenant_context_comes_from_the_authenticated_actor_not_a_request_header()
+    {
+        var expected = await fixture.EnsureBootstrappedAsync();
+        using var client = fixture.Client();
+        FoundationFixture.SetCookies(client, await fixture.LoginCookieAsync());
+        client.DefaultRequestHeaders.Add("X-Organization-Id", Guid.NewGuid().ToString("D"));
+
+        var context = await client.GetFromJsonAsync<TenantContextResponse>("/api/probe/tenant-context");
+        Assert.Equal(expected.OrganizationId, context!.OrganizationId);
+        Assert.Equal(expected.OrganizationId.ToString("D"), context.TenantId);
     }
 
     [Fact]
@@ -160,10 +173,11 @@ public sealed class FoundationTests(FoundationFixture fixture) : IClassFixture<F
     [Fact]
     public async Task SignalR_negotiation_requires_authenticated_organization()
     {
+        await fixture.EnsureBootstrappedAsync();
         using var client = fixture.Client();
         Assert.Equal(HttpStatusCode.Unauthorized,
             (await client.PostAsync("/hubs/probe/negotiate?negotiateVersion=1", null)).StatusCode);
-        client.DefaultRequestHeaders.Add("Cookie", fixture.Cookie(Guid.NewGuid(), Guid.NewGuid()));
+        client.DefaultRequestHeaders.Add("Cookie", await fixture.LoginCookieAsync());
         var response = await client.PostAsync("/hubs/probe/negotiate?negotiateVersion=1", null);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("connectionToken", await response.Content.ReadAsStringAsync());
@@ -172,12 +186,14 @@ public sealed class FoundationTests(FoundationFixture fixture) : IClassFixture<F
     [Fact]
     public async Task SignalR_authenticated_connection_can_exchange_messages()
     {
+        await fixture.EnsureBootstrappedAsync();
+        var authCookie = await fixture.LoginCookieAsync();
         await using var connection = new HubConnectionBuilder()
             .WithUrl("https://localhost/hubs/probe", options =>
             {
                 options.Transports = HttpTransportType.LongPolling;
                 options.HttpMessageHandlerFactory = _ => fixture.Server.CreateHandler();
-                options.Headers["Cookie"] = fixture.Cookie(Guid.NewGuid(), Guid.NewGuid());
+                options.Headers["Cookie"] = authCookie;
             }).Build();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await connection.StartAsync(timeout.Token);
@@ -188,15 +204,17 @@ public sealed class FoundationTests(FoundationFixture fixture) : IClassFixture<F
     [Fact]
     public async Task Health_endpoints_do_not_expose_dependency_details_to_anonymous_users()
     {
+        await fixture.EnsureBootstrappedAsync();
         using var client = fixture.Client();
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health/live")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health/ready")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/health/dependencies")).StatusCode);
-        client.DefaultRequestHeaders.Add("Cookie", fixture.Cookie(Guid.NewGuid(), Guid.NewGuid()));
+        client.DefaultRequestHeaders.Add("Cookie", await fixture.LoginCookieAsync());
         var response = await client.GetAsync("/health/dependencies");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
     }
 
     private sealed record CsrfToken(string Token);
+    private sealed record TenantContextResponse(Guid OrganizationId, string TenantId);
 }

@@ -28,7 +28,7 @@ GOAL.md
    ↓
 UX_STRUCTURE.md
    ↓
-UI_DESIGN_RULES.md
+docs/reference/UI_DESIGN_RULES.md
    ↓
 Inspect nlt-smart-gas
    ↓
@@ -809,7 +809,7 @@ Trước mỗi task UI:
 ```text
 Read UX_STRUCTURE.md
     ↓
-Read UI_DESIGN_RULES.md
+Read docs/reference/UI_DESIGN_RULES.md
     ↓
 Inspect relevant source in nlt-smart-gas
     ↓

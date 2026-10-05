@@ -215,11 +215,6 @@
         "resolved": "4.0.1",
         "contentHash": "jegBasNndmG21G3BmT51suFDCIz/sLN81j+IxmkZ4iWoaDi8LygeHiyNnYbXz5OQh9nCRJFIx1+PJrlYi1Gc9Q=="
       },
-      "Npgsql": {
-        "type": "Transitive",
-        "resolved": "9.0.4",
-        "contentHash": "68BASXH0FAEuL/J4J0eRfYC8/3vzqQTmoW8zDzNf0JgaVxc7LZeEkS6jaG0ib3voFLxY5ZiCwJG+uQM+mzuu0Q=="
-      },
       "Npgsql.NetTopologySuite": {
         "type": "Transitive",
         "resolved": "9.0.4",
@@ -335,17 +330,6 @@
           "Weasel.Core": "9.29.0"
         }
       },
-      "WolverineFx": {
-        "type": "Transitive",
-        "resolved": "6.33.0",
-        "contentHash": "ioNpB4WnCJfL+HPbidptw5pWnFL0VCJFPcQDsQ0NOdJEL7/UaGiL1N1+OoHWqzNr5sUG+UWWioiKLNIjqMT+Gg==",
-        "dependencies": {
-          "JasperFx": "2.60.0",
-          "JasperFx.Events": "2.60.0",
-          "JasperFx.SourceGenerator": "2.60.0",
-          "NewId": "4.0.1"
-        }
-      },
       "WolverineFx.Postgresql": {
         "type": "Transitive",
         "resolved": "6.33.0",
@@ -364,18 +348,89 @@
           "WolverineFx": "6.33.0"
         }
       },
+      "learningplatform.academics": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
+        }
+      },
+      "learningplatform.assessment": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Classroom": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "LearningPlatform.Learning": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
+        }
+      },
+      "learningplatform.classroom": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "StackExchange.Redis": "[3.1.31, )",
+          "WolverineFx": "[6.33.0, )"
+        }
+      },
+      "learningplatform.communication": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Classroom": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
+        }
+      },
       "learningplatform.identity": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "Marten": "[9.32.0, )",
+          "Npgsql": "[9.0.4, )"
+        }
       },
       "learningplatform.infrastructure": {
         "type": "Project",
         "dependencies": {
           "AWSSDK.S3": "[4.0.102.5, )",
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Assessment": "[1.0.0, )",
+          "LearningPlatform.Classroom": "[1.0.0, )",
+          "LearningPlatform.Communication": "[1.0.0, )",
           "LearningPlatform.Identity": "[1.0.0, )",
+          "LearningPlatform.Learning": "[1.0.0, )",
+          "LearningPlatform.Reporting": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "StackExchange.Redis": "[3.1.31, )",
           "WolverineFx.Marten": "[6.33.0, )",
           "WolverineFx.RuntimeCompilation": "[6.33.0, )"
+        }
+      },
+      "learningplatform.learning": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Classroom": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
+        }
+      },
+      "learningplatform.reporting": {
+        "type": "Project",
+        "dependencies": {
+          "LearningPlatform.Academics": "[1.0.0, )",
+          "LearningPlatform.Assessment": "[1.0.0, )",
+          "LearningPlatform.Classroom": "[1.0.0, )",
+          "LearningPlatform.Identity": "[1.0.0, )",
+          "LearningPlatform.Learning": "[1.0.0, )",
+          "Marten": "[9.32.0, )",
+          "WolverineFx": "[6.33.0, )"
         }
       },
       "AWSSDK.S3": {
@@ -400,6 +455,12 @@
           "Weasel.Storage": "9.29.0"
         }
       },
+      "Npgsql": {
+        "type": "CentralTransitive",
+        "requested": "[9.0.4, )",
+        "resolved": "9.0.4",
+        "contentHash": "68BASXH0FAEuL/J4J0eRfYC8/3vzqQTmoW8zDzNf0JgaVxc7LZeEkS6jaG0ib3voFLxY5ZiCwJG+uQM+mzuu0Q=="
+      },
       "StackExchange.Redis": {
         "type": "CentralTransitive",
         "requested": "[3.1.31, )",
@@ -408,6 +469,18 @@
         "dependencies": {
           "RESPite": "3.1.31",
           "System.IO.Hashing": "10.0.5"
+        }
+      },
+      "WolverineFx": {
+        "type": "CentralTransitive",
+        "requested": "[6.33.0, )",
+        "resolved": "6.33.0",
+        "contentHash": "ioNpB4WnCJfL+HPbidptw5pWnFL0VCJFPcQDsQ0NOdJEL7/UaGiL1N1+OoHWqzNr5sUG+UWWioiKLNIjqMT+Gg==",
+        "dependencies": {
+          "JasperFx": "2.60.0",
+          "JasperFx.Events": "2.60.0",
+          "JasperFx.SourceGenerator": "2.60.0",
+          "NewId": "4.0.1"
         }
       },
       "WolverineFx.Marten": {

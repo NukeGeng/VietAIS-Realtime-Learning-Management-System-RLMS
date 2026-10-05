@@ -41,10 +41,12 @@ Organization
 ├── Users
 │
 ├── Courses
-│    ├── CourseModule
-│    └── Lesson
+│    └── Curriculum
+│         ├── CourseModule
+│         └── Lesson
 │
 └── LearningClass
+     └── ClassCurriculumAssignment
      ├── Enrollment
      ├── ClassSchedule
      ├── LiveSession
@@ -82,7 +84,7 @@ Student
 | Module | Sở hữu chính |
 |---|---|
 | Identity | Organization, User, Role, Permission |
-| Academics | Course, CourseModule, Lesson, LearningClass, Enrollment, ClassSchedule |
+| Academics | Course, Curriculum, CourseModule, Lesson, LearningClass, ClassCurriculumAssignment, Enrollment, ClassSchedule |
 | Classroom | LiveSession, StudentActivity, AttendanceRecord, HelpRequest |
 | Assessment | AssessmentActivity, QuestionBankItem, Submission, Gradebook, Essay* |
 | Learning | LearningProgress, LearningResource, learning history |
@@ -198,6 +200,11 @@ Course là aggregate/document cấp cao cho lifecycle:
 - Published;
 - Archived nếu cần.
 
+`Curriculum` là cấu trúc nội dung cụ thể của một Course. Một `LearningClass`
+có thể được gán một hoặc nhiều curriculum thông qua `ClassCurriculumAssignment`
+(LearningClassId, CurriculumId, Order, Status). Assignment là quan hệ tham chiếu;
+không sao chép cây nội dung vào lớp.
+
 Không để Course aggregate chứa toàn bộ:
 - classes;
 - students;
@@ -206,7 +213,23 @@ Không để Course aggregate chứa toàn bộ:
 
 ---
 
-## 5.2. CourseModule
+## 5.2. Curriculum
+
+```csharp
+Curriculum
+{
+    Id
+    CourseId
+    Title
+    Description
+    Status
+}
+```
+
+Curriculum có lifecycle publish riêng và là context của tiến độ học theo học
+sinh + lớp + curriculum.
+
+## 5.3. CourseModule
 
 ```csharp
 CourseModule
@@ -225,7 +248,7 @@ Không bắt buộc nhét toàn bộ course tree vào một JSON document khổn
 
 ---
 
-## 5.3. Lesson
+## 5.4. Lesson
 
 ```csharp
 Lesson
@@ -347,6 +370,7 @@ LiveSession
     Status
     StartedAt
     EndedAt
+    LateAfterMinutes
     MediaRoomId
 }
 ```
@@ -370,12 +394,15 @@ AttendanceRecord
     Id
     LiveSessionId
     StudentId
-    FirstJoinedAt
-    LastLeftAt
+    FirstJoinedAt?
+    LastLeftAt?
     TotalDuration
     Status
     AdjustedBy?
     AdjustmentReason?
+    CurrentJoinedAt?
+    Segments
+    ReconnectCount
 }
 ```
 
@@ -384,6 +411,57 @@ Attendance là durable business data.
 Presence là ephemeral.
 
 Không dùng Redis làm source of truth cho attendance cuối cùng.
+
+`AttendanceRecord` là một document tenant-scoped cho mỗi cặp
+`LiveSessionId + StudentId`. `CurrentJoinedAt` chỉ giữ segment đang mở để handler
+đóng segment khi nhận leave hoặc khi phiên kết thúc; `ActiveConnectionIds` giữ
+những HTTP/SignalR connection đang tham gia segment. Một disconnect chỉ đóng
+segment khi connection cuối cùng rời đi; nó không thay thế presence. Join/leave
+được xử lý bất đồng bộ và phải idempotent.
+
+`Segments` lưu lịch sử các lần vào/rời trong đúng phiên đó (thời điểm vào, thời điểm
+rời và thời lượng). `ReconnectCount` là số lần mở lại sau segment đầu tiên. Ngưỡng
+đi muộn được chốt trên `LiveSession.LateAfterMinutes` để một lần reconnect không làm
+thay đổi luật của phiên khác.
+
+# 10.1. RaiseHand
+
+```csharp
+RaiseHand
+{
+    Id
+    LiveSessionId
+    StudentId
+    Status
+    RaisedAt
+    LoweredAt?
+    ClearedBy?
+}
+```
+
+Đây là document trạng thái nhỏ, có identity xác định theo
+`LiveSessionId + StudentId`. Broadcast SignalR chỉ là delta; document là nguồn
+durable để teacher tải lại hàng đợi giơ tay.
+
+---
+
+# 10.2. LiveSessionParticipantModeration
+
+```csharp
+LiveSessionParticipantModeration
+{
+    LiveSessionId
+    StudentId
+    IsBlocked
+    IsMuted
+    ChangedBy
+    UpdatedAt
+}
+```
+
+Đây là document tenant-scoped theo cặp `LiveSessionId + StudentId`. Kick, block và
+mute chỉ tác động tới phiên hiện tại; không ghi trạng thái vào enrollment hoặc tài
+khoản để tránh lan sang phiên khác.
 
 ---
 
@@ -419,6 +497,19 @@ StudentActivity
 ## Event Sourcing
 
 `StudentActivity` là candidate chính cho Event Sourcing.
+
+Implementation uses a conjoined Marten event stream with an inline snapshot. The
+snapshot is the attempt read model; event history is reserved for durable state
+transitions and audit. Current transitions are `StudentActivityStarted`,
+`QuestionOpened`, `AnswerSubmitted`, `AnswerChanged`, and `ActivitySubmitted`.
+
+Assessment also owns two tenant-scoped read models for the teacher workspace:
+`ClassOverviewView` stores one metadata summary per enrolled student and never
+stores answer content in its realtime response; `StudentAttemptDetailView` stores
+the latest full answer snapshot for one attempt. Both include a monotonic version.
+The async projection updates them from the durable `StudentActivityChanged`
+contract, and the API falls back to the inline `StudentActivity` snapshot when a
+detail projection is still catching up.
 
 Stream:
 
@@ -531,6 +622,12 @@ ActivityQuestion
 ```
 
 Có thể lưu question snapshot khi publish nếu implementation thấy phù hợp.
+
+The current implementation stores selected `ActivityQuestion` entries as immutable
+snapshots inside the activity document. Each entry retains its source
+`QuestionVersionId`, prompt, type, options, points, and objective answer for later
+grading. Publishing is the boundary after which the question list and snapshots
+cannot be changed.
 
 Invariant:
 > Sửa Question Bank sau này không làm thay đổi nội dung một bài đã phát hành/làm trước đó.
@@ -663,6 +760,11 @@ GradeEntry
 
 Auto grading chỉ với deterministic objective question.
 
+`GradeAdjustment` là audit document cho mỗi thay đổi điểm đã ghi nhận. Adjustment
+giữ `GradeEntryId`, điểm cũ/mới, người điều chỉnh, lý do, thời điểm và phiên bản
+điểm. Entry được đưa về Draft sau khi điều chỉnh và phải publish lại trước khi
+student có thể thấy kết quả mới.
+
 ---
 
 # 19. Gradebook
@@ -707,8 +809,11 @@ HelpRequest là business state, không chỉ notification.
 HelpRequest
 {
     Id
+    OrganizationId
     LiveSessionId
     StudentActivityId
+    ActivityId
+    LearningClassId
     StudentId
     QuestionId?
     Status
@@ -718,6 +823,10 @@ HelpRequest
     HandledBy?
 }
 ```
+
+`HelpRequest` là document tenant-scoped. Hàng chờ đọc các request chưa Resolved;
+`WaitDurationSeconds` được tính từ `RequestedAt` đến `AcknowledgedAt`, hoặc đến
+`ResolvedAt`/thời điểm đọc nếu request còn chờ.
 
 Lifecycle:
 
@@ -970,6 +1079,17 @@ Announcement
 
 ## ChatMessage
 
+```csharp
+ChatMessage
+{
+    Id
+    LiveSessionId
+    SenderId
+    Body
+    SentAt
+}
+```
+
 Chat có workload riêng.
 
 Durability/retention cụ thể theo product rule.
@@ -1158,6 +1278,47 @@ Không nhét:
 
 ---
 
+# 32.1. StudentCurriculumContentView
+
+`StudentCurriculumContentView` là read model theo `LearningClass`, curriculum và
+người học, được dựng on-demand từ nội dung đã publish và
+`StudentLessonProgressRecord` của chính sinh viên. Nó chỉ chứa tiêu đề, thứ tự,
+trạng thái và số bài hoàn thành; nội dung chi tiết và tài nguyên lesson được tải
+qua query riêng sau khi sinh viên mở bài.
+
+```text
+StudentCurriculumContentView
+    LearningClassId
+    CurriculumId
+    CourseId
+    CurriculumTitle
+    CourseTitle
+    CompletedLessons
+    TotalLessons
+    Progress
+    Modules[]
+
+StudentCourseModuleView
+    ModuleId
+    Title
+    Order
+    CompletedLessons
+    TotalLessons
+    Lessons[]
+
+StudentLessonSummaryView
+    LessonId
+    Title
+    Order
+    Status (InProgress | Completed | null)
+```
+
+`StudentLessonDetailView` là query on-demand có thêm `ContentSummary`, module
+context, trạng thái tiến độ và metadata tài nguyên đã publish. Đây là các view
+phục vụ UI, không phải aggregate mới và không sao chép Course/Module/Lesson.
+
+---
+
 # 33. Persistence Matrix
 
 | Model | Storage chính | Kiểu |
@@ -1165,19 +1326,25 @@ Không nhét:
 | Organization | PostgreSQL/Marten | Document |
 | User | PostgreSQL/Marten | Document |
 | Course | PostgreSQL/Marten | Document |
-| CourseModule/Lesson | PostgreSQL/Marten | Document/entity tùy lifecycle |
+| Curriculum/CourseModule/Lesson | PostgreSQL/Marten | Document/entity tùy lifecycle |
 | LearningClass | PostgreSQL/Marten | Document |
 | Enrollment | PostgreSQL/Marten | Document |
 | ClassSchedule | PostgreSQL/Marten | Document |
 | LiveSession | PostgreSQL/Marten | Document / event-backed nếu cần |
 | AttendanceRecord | PostgreSQL/Marten | Durable document/projection |
+| RaiseHand | PostgreSQL/Marten | Durable state document |
+| HelpRequest | PostgreSQL/Marten | Durable lifecycle document |
 | StudentActivity | Marten Event Store | Event-sourced Aggregate |
 | AssessmentActivity | PostgreSQL/Marten | Document |
 | QuestionBankItem/Version | PostgreSQL/Marten | Documents |
 | Submission | PostgreSQL/Marten | Durable document |
 | GradeItem/GradeEntry | PostgreSQL/Marten | Documents |
+| GradeAdjustment | PostgreSQL/Marten | Audit document |
 | Essay* | PostgreSQL/Marten | Documents + domain events khi cần |
-| LearningProgress | PostgreSQL/Marten | Projection/document |
+| StudentProgressRecord/StudentLessonProgressRecord | PostgreSQL/Marten | Projection/documents |
+| StudentCourseContentView (query response) | PostgreSQL/Marten query over published CourseModule/Lesson + StudentLessonProgressRecord | On-demand student read model |
+| LearningResource | PostgreSQL/Marten | Metadata document |
+| ClassReportSnapshot/StudentReportSnapshot | PostgreSQL/Marten | Reporting projections |
 | ClassOverviewView | PostgreSQL/Marten | Projection |
 | StudentAttemptDetailView | PostgreSQL/Marten | Projection |
 | Presence | Redis | Ephemeral |

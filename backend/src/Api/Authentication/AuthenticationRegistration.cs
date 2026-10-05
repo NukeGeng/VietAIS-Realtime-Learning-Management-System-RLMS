@@ -1,6 +1,7 @@
 using LearningPlatform.Identity.Authorization;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Options;
 
 namespace LearningPlatform.Api.Authentication;
 
@@ -16,6 +17,8 @@ public static class AuthenticationRegistration
                 options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
                 options.Cookie.SameSite = SameSiteMode.Lax;
                 options.ExpireTimeSpan = TimeSpan.FromHours(8);
+                options.SlidingExpiration = true;
+                options.EventsType = typeof(IdentityCookieEvents);
                 options.Events.OnRedirectToLogin = context =>
                 {
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -27,14 +30,21 @@ public static class AuthenticationRegistration
                     return Task.CompletedTask;
                 };
             });
+        services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
+            .Configure<IOptions<LearningPlatform.Identity.Domain.IdentityOptions>>((cookie, identity) =>
+            {
+                cookie.ExpireTimeSpan = TimeSpan.FromHours(identity.Value.SessionHours);
+            });
         services.AddSingleton<IAuthorizationHandler, OrganizationMemberHandler>();
         services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
+        services.AddScoped<IdentityCookieEvents>();
         services.AddAuthorization(options =>
         {
             var membership = new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser().AddRequirements(new OrganizationMemberRequirement()).Build();
             options.DefaultPolicy = membership;
             options.FallbackPolicy = membership;
+            IdentityAuthorizationPolicies.AddIdentityPolicies(options);
         });
         services.AddAntiforgery(options =>
         {

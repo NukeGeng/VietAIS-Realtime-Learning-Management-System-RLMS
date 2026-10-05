@@ -145,7 +145,7 @@ Có thể lưu ephemeral state tại Redis.
 
 ### 5.2. Class Overview Channel
 Teacher subscribe theo:
-`class:{classId}:activity:{activityId}:overview`
+`tenant:{tenantId}:activity-overview:{classId}:{activityId}`
 
 Payload tối thiểu:
 
@@ -165,7 +165,7 @@ Không gửi answer detail.
 ### 5.3. Student Detail Channel
 Teacher chỉ subscribe khi mở attempt:
 
-`attempt:{attemptId}:detail`
+`tenant:{tenantId}:activity-detail:{attemptId}`
 
 Khi chuyển sinh viên:
 - leave group cũ;
@@ -187,6 +187,16 @@ QuestionOpened Version 39
 ```
 
 Nếu mất connection, client có thể reload snapshot hiện tại rồi subscribe lại.
+The Assessment projection stores the exact post-transition state before sending
+these deltas and ignores an older version for an attempt. Overview delivery and
+detail delivery are isolated best-effort operations; an error in one does not stop
+the other. Overview responses also carry per-question answered/current counts for a
+lightweight heatmap; answer values remain confined to the on-demand detail path.
+
+Help requests are durable tenant-scoped documents with the lifecycle
+`Requested → Acknowledged → Resolved`. The realtime attempt flag mirrors the current
+request, while the document preserves timestamps and basic wait duration for the
+teacher queue.
 
 ---
 
@@ -315,12 +325,22 @@ Không bắt buộc mọi context phải dùng Event Sourcing. Chỉ dùng nơi 
 ### PostgreSQL + Marten
 Source of truth cho:
 - Course/Class/Schedule;
+- LiveSession, AttendanceRecord và RaiseHand;
+- ChatMessage history theo retention policy;
+- QuestionBankItem, immutable QuestionVersion và AssessmentActivity snapshots;
 - Event Streams;
 - StudentActivity;
 - Submission;
-- Grade;
-- Learning Progress;
+- Grade, gradebook adjustments and publication state;
+- HelpRequest lifecycle;
+- Learning progress and resource metadata;
+- Essay topic/submission/validation metadata and reporting snapshots;
 - Read Models.
+
+Event-sourced `StudentActivity` streams use Marten conjoined tenancy. The inline
+`StudentActivity` snapshot is the attempt read model; ordinary UI requests do not
+replay event history. Published activities embed selected question-version content
+so question-bank edits cannot alter an existing activity or attempt.
 
 ### Redis
 Ephemeral / cache:
@@ -342,6 +362,73 @@ Ephemeral / cache:
 ### CDN
 Dùng phân phối static/media file phù hợp, tránh đẩy binary qua API.
 
+### 9.1. Database placement và multi-tenancy
+
+Hosted SaaS hiện tại dùng một PostgreSQL shared database với Marten conjoined
+multi-tenancy. `Organization` là business entity; `TenantId` là technical isolation
+key. `ITenantContext` resolve tenant từ authenticated principal tại Infrastructure,
+sau đó mở `IDocumentSession` đúng tenant. Không nhận tenant selector từ request.
+
+```text
+Authenticated principal
+        ↓
+ITenantContext
+        ↓
+Marten tenant-aware session
+        ↓
+tenant_id + document identity / unique index
+```
+
+Organization registry và bootstrap state nằm ở control tenant. Course, class,
+enrollment, schedule, LiveSession, event stream, essay/file metadata và projection
+thuộc tenant của request. Business key local to organization phải có unique semantics
+tương đương `(tenant_id, business_key)`.
+
+Redis và realtime group cũng phải dùng tenant-scoped key. Object Storage file có
+tenant ownership trong metadata và object key; file endpoints chỉ trả signed access
+URL sau khi backend kiểm tra quyền và tổ chức.
+
+Database-per-tenant cho Hosted Enterprise hoặc On-Premise là placement strategy ở
+Infrastructure, chưa triển khai provisioning/orchestration trong GOAL hiện tại.
+Business module không được branch theo commercial plan hoặc database placement.
+
+Join/leave chỉ đăng ký Redis presence rồi phát message nhỏ có tenant context để
+attendance handler cập nhật `AttendanceRecord` bất đồng bộ. Một student có thể giữ
+đồng thời HTTP và nhiều SignalR connection; attendance lưu các connection ID đang
+mở để một disconnect không đóng segment còn được sử dụng. Khi kết thúc phiên,
+handler đóng segment còn mở và tạo bản ghi vắng cho student chưa từng join. Chat
+ghi durable message trước khi broadcast; SignalR delivery có thể thất bại mà không
+làm mất lịch sử chat hoặc ảnh hưởng media/answer/submit. Sau khi transaction kết thúc
+attendance commit, handler mới phát tín hiệu refresh cho reporting để snapshot lớp và
+các student bị ảnh hưởng không đọc trước trạng thái điểm danh cuối phiên. Khi teacher
+điều chỉnh attendance, API lưu correction trước rồi enqueue refresh tenant-scoped cho
+class và student tương ứng; lỗi reporting không làm mất correction đã lưu.
+Mỗi lần rời rồi vào lại sẽ đóng segment hiện tại, mở segment mới và tăng
+`ReconnectCount`; ngưỡng đi muộn được lấy từ cấu hình `LateAfterMinutes` của chính
+`LiveSession`. Moderation lưu document theo phiên và người học, nên kick/block/mute
+không ảnh hưởng enrollment hay các phiên khác.
+Join được chấp nhận trước thời điểm kết thúc sẽ được chốt theo `EndedAt` dù message
+đến muộn; join phát sinh sau khi session đã kết thúc bị bỏ qua để không mở lại record
+`Present` trên một session đã đóng.
+Khi teacher kết thúc `LiveSession`, transaction kết thúc được commit trước rồi
+SignalR phát `session-ended` tới đúng tenant-scoped group; các client dừng media,
+đóng kết nối realtime và rời live route. Hub cũng từ chối mọi kết nối mới sau
+`EndedAt`.
+Thay đổi trọng số `GradeItem` cũng được lưu trước rồi enqueue refresh cho class và
+các student active để các report phản ánh cấu hình gradebook mới.
+Thay đổi enrollment, lifecycle của assessment/essay và accepted submission cũng phát
+refresh tenant-scoped sau khi durable write hoàn tất; enrollment active tạo hoặc cập
+nhật snapshot student, còn drop chỉ cần cập nhật class count. Learning progress phát
+thêm một reporting refresh sau khi projection điểm đã commit để tách race giữa queue
+learning và queue reporting. Khi lesson/module/course content được publish hoặc
+archive, Academics phát refresh tenant-scoped cho các student active trong mọi class
+dùng course đó để lesson count và completion percentage không bị stale.
+Khi adjustment rút attempt retake đã publish về draft, Learning cũng chuyển progress
+về attempt published hiệu lực còn lại; visibility event cũ đến muộn không được ghi đè
+state mới.
+Nếu `LiveSession` gắn với `ClassSchedule`, kết thúc phiên cũng chuyển schedule sang
+`Completed` trong cùng transaction để occurrence đã hoàn tất không bị dùng lại.
+
 ---
 
 ## 10. Failure Isolation
@@ -352,6 +439,11 @@ Session / Permission / Enrollment / Schedule
 
 MEDIA PLANE
 Video / Audio / Screen share
+
+Screen share của một `LiveSession` dùng lease ephemeral tenant-scoped trong Redis:
+chỉ một presenter được giữ lease, student bị từ chối khi đang có presenter và
+teacher có thể takeover sau khi xác nhận ở client. Track media vẫn đi qua WebRTC;
+SignalR chỉ phát sự kiện bắt đầu, thay thế và dừng trình bày.
 
 CLASS STATE PLANE
 Presence / Attendance / Progress Overview
