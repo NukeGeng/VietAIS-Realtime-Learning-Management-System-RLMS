@@ -15,6 +15,106 @@ namespace LearningPlatform.IntegrationTests;
 
 public sealed class ClassroomInteractionTests(FoundationFixture fixture) : IClassFixture<FoundationFixture>
 {
+    [Theory]
+    [InlineData(false, true, AttendanceStatus.Present)]
+    [InlineData(false, false, AttendanceStatus.Late)]
+    [InlineData(true, true, AttendanceStatus.Late)]
+    public async Task Delayed_earlier_join_corrects_only_automatic_attendance_with_known_cutoff(
+        bool adjusted, bool hasCutoff, AttendanceStatus expectedStatus)
+    {
+        var setup = await CreateStartedSessionAsync();
+        var organization = await fixture.EnsureBootstrappedAsync();
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+        var id = ClassroomConstants.AttendanceRecordId(setup.Session.Id, setup.StudentId);
+        var cutoff = DateTimeOffset.UtcNow;
+        var firstProcessedJoin = cutoff.AddMinutes(1);
+        await using (var tenant = store.LightweightSession(organization.OrganizationId.ToString("D")))
+        {
+            tenant.Insert(new AttendanceRecord
+            {
+                Id = id,
+                OrganizationId = organization.OrganizationId,
+                LiveSessionId = setup.Session.Id,
+                StudentId = setup.StudentId,
+                Status = AttendanceStatus.Late,
+                FirstJoinedAt = firstProcessedJoin,
+                LateCutoffAt = hasCutoff ? cutoff : null,
+                AdjustedBy = adjusted ? setup.TeacherId : null,
+                UpdatedAt = firstProcessedJoin
+            });
+            await tenant.SaveChangesAsync();
+        }
+
+        var earlierJoin = cutoff.AddMinutes(-1);
+        await AttendanceParticipantJoinedHandler.Handle(new LiveSessionParticipantJoined(
+            organization.OrganizationId, setup.Session.Id, setup.StudentId, earlierJoin), store,
+            CancellationToken.None);
+        await using var query = store.QuerySession(organization.OrganizationId.ToString("D"));
+        var record = (await query.LoadAsync<AttendanceRecord>(id))!;
+        Assert.Equal(expectedStatus, record.Status);
+        Assert.Equal(adjusted ? firstProcessedJoin : earlierJoin, record.FirstJoinedAt);
+        Assert.Equal(hasCutoff ? cutoff : (DateTimeOffset?)null, record.LateCutoffAt);
+    }
+
+    [Theory]
+    [InlineData(AttendanceStatus.Absent)]
+    [InlineData(AttendanceStatus.Late)]
+    public async Task Existing_attendance_establishes_cutoff_only_on_the_first_join(AttendanceStatus initialStatus)
+    {
+        var setup = await CreateStartedSessionAsync();
+        var organization = await fixture.EnsureBootstrappedAsync();
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+        var id = ClassroomConstants.AttendanceRecordId(setup.Session.Id, setup.StudentId);
+        var oldJoin = DateTimeOffset.UtcNow.AddMinutes(-30);
+        DateTimeOffset? expectedCutoff;
+        await using (var tenant = store.LightweightSession(organization.OrganizationId.ToString("D")))
+        {
+            var liveSession = (await tenant.LoadAsync<LiveSession>(setup.Session.Id))!;
+            expectedCutoff = liveSession.StartedAt!.Value.AddMinutes(liveSession.LateAfterMinutes);
+            tenant.Insert(new AttendanceRecord
+            {
+                Id = id,
+                OrganizationId = organization.OrganizationId,
+                LiveSessionId = setup.Session.Id,
+                StudentId = setup.StudentId,
+                Status = initialStatus,
+                FirstJoinedAt = initialStatus == AttendanceStatus.Late ? oldJoin : null,
+                LastLeftAt = initialStatus == AttendanceStatus.Late ? oldJoin.AddMinutes(10) : null,
+                UpdatedAt = oldJoin
+            });
+            await tenant.SaveChangesAsync();
+        }
+
+        using var join = await PostWithCsrfAsync(setup.Student, setup.Session.Id, "/join", new { });
+        join.EnsureSuccessStatusCode();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        AttendanceRecord? persisted = null;
+        while (persisted?.CurrentJoinedAt is null)
+        {
+            await using var query = store.QuerySession(organization.OrganizationId.ToString("D"));
+            persisted = await query.LoadAsync<AttendanceRecord>(id, timeout.Token);
+            if (persisted?.CurrentJoinedAt is null) await Task.Delay(100, timeout.Token);
+        }
+
+        var summary = (await setup.Teacher.GetFromJsonAsync<AttendanceSummaryResponse>(
+            $"/api/classroom/sessions/{setup.Session.Id:D}/attendance", timeout.Token))!;
+        var response = Assert.Single(summary.Records);
+        Assert.Equal("Integration Test Account", response.StudentDisplayName);
+        if (initialStatus == AttendanceStatus.Absent)
+        {
+            Assert.Equal(expectedCutoff, persisted.LateCutoffAt);
+            Assert.Equal(expectedCutoff, response.LateCutoffAt);
+            Assert.Equal(AttendanceStatus.Present, response.Status);
+        }
+        else
+        {
+            Assert.Null(persisted.LateCutoffAt);
+            Assert.Null(response.LateCutoffAt);
+            Assert.Equal(AttendanceStatus.Late, response.Status);
+            Assert.Equal(oldJoin, response.FirstJoinedAt);
+        }
+    }
+
     [Fact]
     public async Task Chat_and_raise_hand_are_member_scoped_and_realtime_state_is_durable()
     {

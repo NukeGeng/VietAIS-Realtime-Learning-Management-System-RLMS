@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
+using Marten;
 
 namespace LearningPlatform.IntegrationTests;
 
@@ -690,6 +691,24 @@ public sealed class LiveSessionTests(FoundationFixture fixture) : IClassFixture<
             }
         }
         Assert.Equal(AttendanceStatus.Late, firstRecord.Status);
+        var originalCutoff = startsAt.AddMinutes(15);
+        Assert.Equal(originalCutoff, firstRecord.LateCutoffAt);
+        Assert.Equal("Integration Test Account", firstRecord.StudentDisplayName);
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var query = store.QuerySession(organization.OrganizationId.ToString("D")))
+        {
+            var persisted = await query.LoadAsync<AttendanceRecord>(
+                ClassroomConstants.AttendanceRecordId(liveSession.Id, student.UserId));
+            Assert.Equal(originalCutoff, persisted!.LateCutoffAt);
+        }
+
+        // Editing the linked schedule after the first join must not rewrite
+        // this student's original attendance threshold on reconnect.
+        var movedStart = DateTimeOffset.UtcNow.AddHours(2);
+        using var reschedule = await PostWithCsrfAsync(teacher,
+            $"/api/academics/classes/{learningClass.Id:D}/schedules/{schedule.Id:D}/reschedule",
+            new { StartsAt = movedStart, EndsAt = movedStart.AddHours(1) });
+        reschedule.EnsureSuccessStatusCode();
 
         using var leave = await PostWithCsrfAsync(studentClient,
             $"/api/classroom/sessions/{liveSession.Id:D}/leave", new { });
@@ -714,10 +733,21 @@ public sealed class LiveSessionTests(FoundationFixture fixture) : IClassFixture<
         }
 
         Assert.Equal(1, reconnectedRecord!.ReconnectCount);
+        Assert.Equal(AttendanceStatus.Late, reconnectedRecord.Status);
+        Assert.Equal(originalCutoff, reconnectedRecord.LateCutoffAt);
+        Assert.Equal(firstRecord.FirstJoinedAt, reconnectedRecord.FirstJoinedAt);
+        Assert.Equal("Integration Test Account", reconnectedRecord.StudentDisplayName);
         Assert.Equal(2, reconnectedRecord.Segments.Count);
         Assert.NotNull(reconnectedRecord.Segments[0].LeftAt);
         Assert.True(reconnectedRecord.Segments[0].Duration > TimeSpan.Zero);
         Assert.Null(reconnectedRecord.Segments[1].LeftAt);
+        await using (var query = store.QuerySession(organization.OrganizationId.ToString("D")))
+        {
+            var persisted = await query.LoadAsync<AttendanceRecord>(
+                ClassroomConstants.AttendanceRecordId(liveSession.Id, student.UserId));
+            Assert.Equal(originalCutoff, persisted!.LateCutoffAt);
+            Assert.Equal(1, persisted.ReconnectCount);
+        }
     }
 
     [Fact]

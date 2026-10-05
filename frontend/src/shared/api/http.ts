@@ -1,4 +1,6 @@
 import axios, { type AxiosError, type AxiosInstance, type AxiosRequestConfig } from 'axios'
+import { translateErrorMessage } from './errorMessages'
+export { translateErrorMessage } from './errorMessages'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/'
 
@@ -36,14 +38,21 @@ export async function request<T>(config: AxiosRequestConfig): Promise<T> {
 
 export function errorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const axiosError = error as AxiosError<{ error?: string; title?: string; detail?: string }>
-    return axiosError.response?.data?.error || axiosError.response?.data?.detail ||
-      axiosError.response?.data?.title || (axiosError.response?.status === 401
-        ? 'Phiên đăng nhập đã hết hạn.'
-        : axiosError.response?.status === 403 ? 'Bạn không có quyền thực hiện thao tác này.'
-          : 'Không thể hoàn thành yêu cầu.')
+    const axiosError = error as AxiosError<{ error?: string; title?: string; detail?: string; errors?: string[] | Record<string, string[]>; submission?: { errors?: string[] } }>
+    const data = axiosError.response?.data
+    const validationErrors = data?.errors || data?.submission?.errors
+    const messages = validationErrors && (Array.isArray(validationErrors) ? validationErrors : Object.values(validationErrors).flat())
+    if (messages?.length) return messages.map(translateErrorMessage).join(' ')
+    const detail = data?.error || data?.detail || data?.title
+    if (detail) return translateErrorMessage(detail)
+    if (!axiosError.response) return 'Không kết nối được máy chủ. Hãy kiểm tra kết nối và thử lại.'
+    if (axiosError.response.status === 401) return 'Phiên đăng nhập đã hết hạn.'
+    if (axiosError.response.status === 403) return 'Bạn không có quyền thực hiện thao tác này.'
+    if (axiosError.response.status === 404) return 'Dữ liệu không còn tồn tại hoặc bạn không có quyền truy cập.'
+    if (axiosError.response.status >= 500) return 'Máy chủ chưa thể xử lý yêu cầu. Hãy thử lại sau.'
+    return 'Không thể hoàn thành yêu cầu.'
   }
-  return error instanceof Error ? error.message : 'Đã xảy ra lỗi không xác định.'
+  return error instanceof Error ? translateErrorMessage(error.message) : 'Đã xảy ra lỗi không xác định.'
 }
 
 export function isUnauthorized(error: unknown): boolean {

@@ -23,7 +23,7 @@
         <div class="panel-heading"><h2>Việc cần làm</h2><RouterLink to="/activities" class="mini-button">Xem tất cả</RouterLink></div>
         <div v-if="activities.length" class="todo-list">
           <div v-for="activity in activities.slice(0, 5)" :key="activity.id" class="todo-item">
-            <div class="todo-copy"><strong>{{ activity.title }}</strong><span>{{ enumLabel(activity.kind) }} · {{ activity.dueAt ? formatDate(activity.dueAt) : 'Không có hạn' }}</span></div>
+            <div class="todo-copy"><strong>{{ activity.title }}</strong><span>{{ enumLabel(activity.kind, enumLabels.activityKind) }} · {{ activity.dueAt ? formatDate(activity.dueAt) : 'Không có hạn' }}</span></div>
             <RouterLink class="mini-button" :to="`/activities/${activity.id}`">Mở</RouterLink>
           </div>
         </div>
@@ -33,7 +33,7 @@
     <section class="panel" style="margin-top:16px">
       <div class="panel-heading"><h2>{{ auth.role === 'student' ? 'Tiến độ gần đây' : 'Hoạt động gần đây' }}</h2><RouterLink :to="auth.role === 'student' ? '/progress' : '/reports'" class="mini-button">Mở báo cáo</RouterLink></div>
       <div v-if="classes.length" class="list-compact">
-        <div v-for="item in classes.slice(0, 6)" :key="item.id" class="list-compact-item"><div><strong>{{ item.code }} · {{ item.name }}</strong><span>{{ formatDate(item.startDate) }} – {{ formatDate(item.endDate) }}</span></div><StatusPill :value="item.status" /></div>
+        <div v-for="item in classes.slice(0, 6)" :key="item.id" class="list-compact-item"><div><strong>{{ item.code }} · {{ item.name }}</strong><span>{{ formatDate(item.startDate) }} – {{ formatDate(item.endDate) }}</span></div><StatusPill :value="item.status" :labels="enumLabels.classStatus" /></div>
       </div>
       <div v-else class="empty-state"><strong>Chưa có lớp học</strong><span>Danh sách sẽ được cập nhật theo tổ chức.</span></div>
     </section>
@@ -47,7 +47,7 @@ import MetricCard from '../../../shared/ui/MetricCard.vue'
 import StatusPill from '../../../shared/ui/StatusPill.vue'
 import { useAuthStore } from '../../../shared/stores/auth'
 import { academicsApi, assessmentApi, communicationApi } from '../../../shared/api/client'
-import { enumLabel, formatDate, formatDateTime, type AssessmentActivity, type LearningClass, type Notification, type Schedule, type Course } from '../../../shared/types'
+import { enumLabels, enumLabel, formatDate, formatDateTime, type AssessmentActivity, type LearningClass, type Notification, type Schedule, type Course } from '../../../shared/types'
 
 const auth = useAuthStore()
 const classes = ref<LearningClass[]>([])

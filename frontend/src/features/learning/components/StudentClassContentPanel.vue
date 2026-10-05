@@ -11,22 +11,22 @@
       <button class="mini-button" type="button" @click="load">Thử lại</button>
     </div>
     <template v-else>
-      <div v-if="filteredCurriculums.length" class="curriculum-card-grid">
-        <RouterLink v-for="curriculum in filteredCurriculums" :key="curriculum.curriculumId" class="curriculum-card" :to="`/classes/${classId}/curriculums/${curriculum.curriculumId}`">
-          <div class="curriculum-card-topline">
-            <span class="curriculum-card-kicker">{{ curriculum.moduleCount }} mô-đun</span>
-            <span v-if="curriculum.lessonCount" class="curriculum-card-progress">{{ curriculum.progress }}%</span>
-          </div>
-          <h3>{{ curriculum.title }}</h3>
-          <p>{{ curriculum.description || 'Nội dung học tập được phát hành cho lớp.' }}</p>
-          <div class="curriculum-card-meta">
-            <span>{{ curriculum.lessonCount }} bài học</span>
-            <span v-if="curriculum.lessonCount">{{ curriculum.completedLessons }}/{{ curriculum.lessonCount }} bài hoàn thành</span>
-            <span v-else>Chưa có bài học được phát hành</span>
-          </div>
-          <span class="curriculum-card-action">{{ curriculum.lessonCount && curriculum.progress > 0 ? 'Tiếp tục học' : 'Bắt đầu' }} <span aria-hidden="true">→</span></span>
-        </RouterLink>
-      </div>
+      <ul v-if="filteredCurriculums.length" class="class-tab-list">
+        <li v-for="curriculum in filteredCurriculums" :key="curriculum.curriculumId">
+          <RouterLink class="class-tab-row" :to="`/classes/${classId}/curriculums/${curriculum.curriculumId}`">
+            <div class="class-tab-copy">
+              <strong>{{ curriculum.title }}</strong>
+              <span>{{ curriculum.description || 'Nội dung học tập được phát hành cho lớp.' }}</span>
+              <span class="class-curriculum-meta">
+                <span>{{ curriculum.moduleCount }} mô-đun · {{ curriculum.lessonCount }} bài học</span>
+                <span v-if="curriculum.lessonCount">{{ curriculum.completedLessons }}/{{ curriculum.lessonCount }} bài hoàn thành · {{ curriculum.progress }}%</span>
+                <span v-else>Chưa có bài học được phát hành</span>
+              </span>
+            </div>
+            <span class="class-curriculum-action">{{ curriculum.lessonCount && curriculum.progress > 0 ? 'Tiếp tục học' : 'Bắt đầu' }} <span aria-hidden="true">→</span></span>
+          </RouterLink>
+        </li>
+      </ul>
       <div v-else class="empty-state">
         <strong>Không tìm thấy chương trình học</strong>
         <span>Thử tìm với tên khác.</span>

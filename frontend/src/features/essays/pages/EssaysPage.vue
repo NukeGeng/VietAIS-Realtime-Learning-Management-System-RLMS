@@ -65,19 +65,11 @@
 
       <div v-if="loadingAssignments" class="loading-state">Đang tải bài tiểu luận…</div>
       <template v-else>
-        <div class="panel-heading essay-assignments-heading">
-          <div>
-            <h2>Bài tiểu luận</h2>
-            <span>Danh sách bài của lớp đang chọn</span>
-          </div>
-          <span>{{ assignments.length }} bài</span>
-        </div>
-
         <div v-if="assignments.length" class="cards-grid">
           <article v-for="assignment in assignments" :key="assignment.id" class="activity-card essay-assignment-card">
             <div class="card-topline">
               <span class="code-label">{{ assignment.maxScore }} ĐIỂM</span>
-              <StatusPill :value="assignment.status" />
+              <StatusPill :value="assignment.status" :labels="enumLabels.essayAssignmentStatus" />
             </div>
             <h3>{{ assignment.title }}</h3>
             <p>{{ assignment.description || 'Bài tiểu luận theo nhóm.' }}</p>
@@ -100,26 +92,43 @@
 
         <div v-if="selectedAssignment" class="grid-two essay-detail-grid">
           <section class="panel">
-            <div class="panel-heading">
+            <div class="panel-heading essay-groups-heading">
               <div>
                 <h2>{{ selectedAssignment.title }}</h2>
                 <span>{{ groups.length }} nhóm</span>
               </div>
-              <div class="card-actions">
+              <div class="card-actions essay-groups-heading-actions">
                 <button v-if="canManage" class="mini-button" @click="publishAssignment">Phát hành</button>
                 <button v-if="auth.role === 'student' || canManage" class="mini-button" @click="createGroup">Tạo nhóm</button>
               </div>
             </div>
             <div v-if="groups.length" class="list-compact">
-              <div v-for="group in groups" :key="group.id" class="list-compact-item">
-                <div>
+              <button
+                v-for="group in visibleGroups"
+                :key="group.id"
+                class="essay-group-row"
+                :class="{ active: selectedGroup?.id === group.id }"
+                type="button"
+                :aria-pressed="selectedGroup?.id === group.id"
+                @click="selectGroup(group)"
+              >
+                <span class="essay-group-copy">
                   <strong>{{ group.name || `Nhóm ${group.id.slice(0, 6)}` }}</strong>
-                  <span>{{ memberCount(group) }} thành viên · {{ topicLabel(group) }}</span>
-                </div>
-                <button class="mini-button" @click="selectGroup(group)">
+                  <span class="essay-group-summary">{{ memberCount(group) }} thành viên · {{ topicLabel(group) }}</span>
+                </span>
+                <span class="essay-group-open-state" :class="{ active: selectedGroup?.id === group.id }">
                   {{ selectedGroup?.id === group.id ? 'Đang mở' : 'Mở nhóm' }}
-                </button>
-              </div>
+                </span>
+              </button>
+              <span v-for="slot in emptyGroupSlots" :key="`empty-${slot}`" class="essay-group-slot" aria-hidden="true" />
+              <nav class="essay-group-pagination" aria-label="Phân trang nhóm">
+                <span>Nhóm {{ groupPageStart }}–{{ groupPageEnd }} trong {{ groups.length }}</span>
+                <div class="essay-group-pagination-controls">
+                  <button class="mini-button" type="button" aria-label="Trang trước" :disabled="groupPage <= 1" @click="groupPage--">‹</button>
+                  <span>Trang {{ groupPage }} / {{ groupPageCount }}</span>
+                  <button class="mini-button" type="button" aria-label="Trang sau" :disabled="groupPage >= groupPageCount" @click="groupPage++">›</button>
+                </div>
+              </nav>
             </div>
             <div v-else class="empty-state">
               <strong>Chưa có nhóm</strong>
@@ -131,7 +140,7 @@
             <div v-if="selectedGroup">
               <div class="panel-heading">
                 <h2>{{ selectedGroup.name }}</h2>
-                <StatusPill :value="selectedGroup.status" />
+                <StatusPill :value="selectedGroup.status" :labels="enumLabels.essayGroupStatus" />
               </div>
               <div class="stack">
                 <div class="list-compact-item">
@@ -139,7 +148,7 @@
                     <strong>Đề tài</strong>
                     <span>{{ topic?.canonicalTitle || topic?.proposedTitle || 'Chưa đăng ký đề tài' }}</span>
                   </div>
-                  <StatusPill :value="topic?.status || 'Chưa có'" />
+                  <StatusPill :value="topic?.status ?? 'Chưa có'" :labels="enumLabels.essayTopicStatus" />
                 </div>
                 <div class="list-compact-item">
                   <div>
@@ -180,10 +189,10 @@
                     <div>
                       <strong>Phiên bản {{ submission.version }}</strong>
                       <span>{{ submission.fileName || 'Tệp đã tải lên' }} · {{ formatDateTime(submission.submittedAt || submission.uploadedAt) }}</span>
-                      <span v-if="submission.errors?.length" class="cell-subtle">{{ submission.errors.join(' · ') }}</span>
+                      <span v-if="submission.errors?.length" class="cell-subtle">{{ submission.errors.map(translateErrorMessage).join(' · ') }}</span>
                     </div>
                     <div class="card-actions">
-                      <StatusPill :value="submission.validationStatus || submission.status" />
+                      <StatusPill :value="submission.validationStatus || submission.status" :labels="enumLabels.essaySubmissionStatus" />
                       <button class="mini-button" @click="openSubmissionFile(submission)">Mở tệp</button>
                       <button v-if="canManage" class="mini-button" @click="selectedSubmission = submission">Chấm</button>
                     </div>
@@ -229,12 +238,13 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage, translateErrorMessage } from '../../../shared/api/http'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import StatusPill from '../../../shared/ui/StatusPill.vue'
 import TeacherClassSelector from '../../../shared/ui/TeacherClassSelector.vue'
 import { useAuthStore } from '../../../shared/stores/auth'
 import { academicsApi, essayApi } from '../../../shared/api/client'
-import { formatDate, formatDateTime, type EssayAssignment, type EssayGroup, type EssaySubmission, type EssayTopic, type LearningClass } from '../../../shared/types'
+import { enumLabels, formatDate, formatDateTime, type EssayAssignment, type EssayGroup, type EssaySubmission, type EssayTopic, type LearningClass } from '../../../shared/types'
 
 interface EssayClassMetadata {
   courseName?: string
@@ -249,6 +259,7 @@ const selectedClassId = ref('')
 const assignments = ref<EssayAssignment[]>([])
 const selectedAssignment = ref<EssayAssignment | null>(null)
 const groups = ref<EssayGroup[]>([])
+const groupPage = ref(1)
 const selectedGroup = ref<EssayGroup | null>(null)
 const topic = ref<EssayTopic | null>(null)
 const submissions = ref<EssaySubmission[]>([])
@@ -264,13 +275,21 @@ const error = ref('')
 const showForm = ref(false)
 const uploadState = ref('')
 const assignmentRequest = ref(0)
+const groupRequest = ref(0)
+const groupDetailRequest = ref(0)
 const form = reactive({ title: '', description: '', deadline: '', maxScore: 100, maxGroupSize: 4 })
 const gradeForm = reactive({ score: 0, feedback: '' })
+const groupsPerPage = 5
 const canManage = computed(() => auth.has('assessment.activities.manage'))
 const selectedClass = computed(() => classes.value.find(item => item.id === selectedClassId.value))
 const selectedClassMeta = computed(() => classMetadata.value[selectedClassId.value])
 const selectedCourseName = computed(() => selectedClassMeta.value?.courseName || 'Môn học chưa xác định')
 const selectedStudentCount = computed(() => selectedClassMeta.value?.studentCount === undefined ? 'Sĩ số đang cập nhật' : `${selectedClassMeta.value.studentCount} sinh viên`)
+const groupPageCount = computed(() => Math.max(1, Math.ceil(groups.value.length / groupsPerPage)))
+const visibleGroups = computed(() => groups.value.slice((groupPage.value - 1) * groupsPerPage, groupPage.value * groupsPerPage))
+const emptyGroupSlots = computed(() => Math.max(0, groupsPerPage - visibleGroups.value.length))
+const groupPageStart = computed(() => (groupPage.value - 1) * groupsPerPage + 1)
+const groupPageEnd = computed(() => Math.min(groupPage.value * groupsPerPage, groups.value.length))
 
 function memberCount(group: EssayGroup) { return group.members?.length ?? group.memberIds?.length ?? 0 }
 function topicLabel(group: EssayGroup) { return group.topicId ? 'Đã đăng ký đề tài' : 'Chưa có đề tài' }
@@ -314,7 +333,10 @@ function changeClass() {
   selectedClassId.value = ''
   assignments.value = []
   selectedAssignment.value = null
+  groupRequest.value++
+  groupDetailRequest.value++
   selectedGroup.value = null
+  groupPage.value = 1
   groups.value = []
   topic.value = null
   submissions.value = []
@@ -328,12 +350,15 @@ async function loadAssignments(classId: string) {
   error.value = ''
   assignments.value = []
   selectedAssignment.value = null
+  groupRequest.value++
+  groupDetailRequest.value++
+  groupPage.value = 1
   groups.value = []
   try {
     const result = await essayApi.assignments(classId)
     if (requestId === assignmentRequest.value && selectedClassId.value === classId) assignments.value = result
   } catch (cause) {
-    if (requestId === assignmentRequest.value) error.value = String((cause as Error)?.message || 'Không tải được bài tiểu luận.')
+    if (requestId === assignmentRequest.value) error.value = errorMessage(cause) || 'Không tải được bài tiểu luận.'
   } finally {
     if (requestId === assignmentRequest.value) loadingAssignments.value = false
   }
@@ -356,18 +381,27 @@ async function createAssignment() {
     form.description = ''
     form.deadline = ''
   } catch (cause) {
-    error.value = String((cause as Error)?.message || 'Không tạo được bài tiểu luận.')
+    error.value = errorMessage(cause) || 'Không tạo được bài tiểu luận.'
   } finally {
     busy.value = false
   }
 }
 
 async function selectAssignment(item: EssayAssignment) {
+  const requestId = ++groupRequest.value
+  groupDetailRequest.value++
   selectedAssignment.value = item
+  groupPage.value = 1
+  groups.value = []
   selectedGroup.value = null
   topic.value = null
   submissions.value = []
-  try { groups.value = await essayApi.groups(item.id) } catch (cause) { error.value = String((cause as Error)?.message || 'Không tải được nhóm.') }
+  try {
+    const result = await essayApi.groups(item.id)
+    if (requestId === groupRequest.value && selectedAssignment.value?.id === item.id) groups.value = result
+  } catch (cause) {
+    if (requestId === groupRequest.value) error.value = errorMessage(cause) || 'Không tải được nhóm.'
+  }
 }
 
 async function publishAssignment() {
@@ -377,7 +411,7 @@ async function publishAssignment() {
     selectedAssignment.value = updated
     const index = assignments.value.findIndex(item => item.id === updated.id)
     if (index >= 0) assignments.value[index] = updated
-  } catch (cause) { error.value = String((cause as Error)?.message || 'Không phát hành được bài tiểu luận.') }
+  } catch (cause) { error.value = errorMessage(cause) || 'Không phát hành được bài tiểu luận.' }
 }
 
 async function closeAssignment(assignment: EssayAssignment) {
@@ -386,19 +420,27 @@ async function closeAssignment(assignment: EssayAssignment) {
     const updated = await essayApi.closeAssignment(assignment.id)
     Object.assign(assignment, updated)
     if (selectedAssignment.value?.id === assignment.id) selectedAssignment.value = updated
-  } catch (cause) { error.value = String((cause as Error)?.message || 'Không đóng được bài tiểu luận.') }
+  } catch (cause) { error.value = errorMessage(cause) || 'Không đóng được bài tiểu luận.' }
 }
 
 async function createGroup() {
   if (!selectedAssignment.value) return
-  try { groups.value.push(await essayApi.createGroup(selectedAssignment.value.id, `Nhóm ${groups.value.length + 1}`)) } catch (cause) { error.value = String((cause as Error)?.message || 'Không tạo được nhóm.') }
+  const assignmentId = selectedAssignment.value.id
+  try {
+    const created = await essayApi.createGroup(assignmentId, `Nhóm ${groups.value.length + 1}`)
+    if (selectedAssignment.value?.id !== assignmentId) return
+    groups.value.push(created)
+    groupPage.value = groupPageCount.value
+  } catch (cause) { error.value = errorMessage(cause) || 'Không tạo được nhóm.' }
 }
 
 async function selectGroup(group: EssayGroup) {
+  const requestId = ++groupDetailRequest.value
   selectedGroup.value = group
   topic.value = null
   submissions.value = []
   const result = await Promise.allSettled([essayApi.topic(group.id), essayApi.submissions(group.id)])
+  if (requestId !== groupDetailRequest.value || selectedGroup.value?.id !== group.id) return
   if (result[0].status === 'fulfilled') topic.value = result[0].value
   if (result[1].status === 'fulfilled') submissions.value = result[1].value
 }
@@ -412,24 +454,24 @@ async function addGroupMember() {
     const index = groups.value.findIndex(item => item.id === updated.id)
     if (index >= 0) groups.value[index] = updated
     memberId.value = ''
-  } catch (cause) { error.value = String((cause as Error)?.message || 'Không thêm được thành viên.') } finally { busy.value = false }
+  } catch (cause) { error.value = errorMessage(cause) || 'Không thêm được thành viên.' } finally { busy.value = false }
 }
 
 async function registerTopic() {
   if (!selectedGroup.value) return
-  try { topic.value = await essayApi.registerTopic(selectedGroup.value.id, topicTitle.value); topicTitle.value = '' } catch (cause) { error.value = String((cause as Error)?.message || 'Không đăng ký được đề tài.') }
+  try { topic.value = await essayApi.registerTopic(selectedGroup.value.id, topicTitle.value); topicTitle.value = '' } catch (cause) { error.value = errorMessage(cause) || 'Không đăng ký được đề tài.' }
 }
 
 async function requestTopicChange() {
   if (!topic.value || !topicChangeTitle.value) return
-  try { topic.value = await essayApi.requestTopicChange(topic.value.essayGroupId, topicChangeTitle.value); topicChangeTitle.value = '' } catch (cause) { error.value = String((cause as Error)?.message || 'Không gửi được yêu cầu đổi đề tài.') }
+  try { topic.value = await essayApi.requestTopicChange(topic.value.essayGroupId, topicChangeTitle.value); topicChangeTitle.value = '' } catch (cause) { error.value = errorMessage(cause) || 'Không gửi được yêu cầu đổi đề tài.' }
 }
 
 async function reviewTopic(action: 'approve' | 'changes' | 'reject' | 'lock') {
   if (!topic.value) return
   try {
     topic.value = action === 'approve' ? await essayApi.approveTopic(topic.value.id) : action === 'changes' ? await essayApi.requestTopicChanges(topic.value.id) : action === 'reject' ? await essayApi.rejectTopic(topic.value.id) : await essayApi.lockTopic(topic.value.id)
-  } catch (cause) { error.value = String((cause as Error)?.message || 'Không cập nhật được đề tài.') }
+  } catch (cause) { error.value = errorMessage(cause) || 'Không cập nhật được đề tài.' }
 }
 
 async function gradeSelected() {
@@ -440,12 +482,12 @@ async function gradeSelected() {
     selectedSubmission.value.gradeEntryId = result.id
     selectedSubmission.value.score = gradeForm.score
     selectedSubmission.value.feedback = gradeForm.feedback
-  } catch (cause) { error.value = String((cause as Error)?.message || 'Không lưu được điểm.') } finally { grading.value = false }
+  } catch (cause) { error.value = errorMessage(cause) || 'Không lưu được điểm.' } finally { grading.value = false }
 }
 
 async function publishSelected() {
   if (!selectedSubmission.value?.gradeEntryId) return
-  try { await essayApi.publishGrade(selectedSubmission.value.gradeEntryId); selectedSubmission.value.status = 'Graded' } catch (cause) { error.value = String((cause as Error)?.message || 'Không công bố được điểm.') }
+  try { await essayApi.publishGrade(selectedSubmission.value.gradeEntryId); selectedSubmission.value.status = 'Graded' } catch (cause) { error.value = errorMessage(cause) || 'Không công bố được điểm.' }
 }
 
 async function openSubmissionFile(submission: EssaySubmission) {
@@ -456,7 +498,7 @@ async function openSubmissionFile(submission: EssaySubmission) {
     else window.location.href = file.accessUrl
   } catch (cause) {
     popup?.close()
-    error.value = String((cause as Error)?.message || 'Không mở được tệp.')
+    error.value = errorMessage(cause) || 'Không mở được tệp.'
   }
 }
 
@@ -467,9 +509,9 @@ async function upload(event: Event) {
   try {
     const result = await essayApi.uploadSubmission(selectedAssignment.value.id, selectedGroup.value.id, file)
     submissions.value.unshift(result)
-    uploadState.value = result.validationMessage || 'Tệp đã được tiếp nhận.'
+    uploadState.value = result.validationMessage ? translateErrorMessage(result.validationMessage) : 'Tệp đã được tiếp nhận.'
   } catch (cause) {
-    uploadState.value = String((cause as Error)?.message || 'Tải tệp lên thất bại.')
+    uploadState.value = errorMessage(cause) || 'Tải tệp lên thất bại.'
     error.value = uploadState.value
   }
 }

@@ -54,6 +54,9 @@ public sealed class AttendanceRecord
     public Guid LiveSessionId { get; set; }
     public Guid StudentId { get; set; }
     public DateTimeOffset? FirstJoinedAt { get; set; }
+    // Freeze the late threshold used for this record so later schedule changes
+    // cannot change its historical lateness or disagree with its stored status.
+    public DateTimeOffset? LateCutoffAt { get; set; }
     public DateTimeOffset? LastLeftAt { get; set; }
     public TimeSpan TotalDuration { get; set; }
     public AttendanceStatus Status { get; set; }

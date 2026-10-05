@@ -8,8 +8,14 @@
     <TeacherClassSelector v-if="!selectedClassId" :classes="classes" :loading="loading" title="Điểm danh" description="Chọn một lớp để xem từng buổi học và lịch sử tham gia." feature-count-label="buổi học" @select="selectClass" />
 
     <div v-else class="toolbar page-toolbar attendance-report-toolbar">
-      <div class="attendance-report-filters">
+      <div class="attendance-report-context">
         <div class="class-context"><strong>{{ selectedClass?.code }} · {{ selectedClass?.name }}</strong><button class="mini-button" @click="changeClass">Đổi lớp</button></div>
+        <div class="toolbar-actions">
+          <span class="cell-subtle">{{ filteredRows.length }} học viên</span>
+          <button class="button secondary" :disabled="!selectedSessionId || selectedSessionId.startsWith('schedule:') || !filteredRows.length" @click="exportExcel">Xuất Excel (.xls)</button>
+        </div>
+      </div>
+      <div class="attendance-report-filters">
         <select v-model="selectedDate" class="form-select" :disabled="!sessionDates.length" aria-label="Ngày học">
           <option value="">Chọn ngày học</option>
           <option v-for="date in sessionDates" :key="date" :value="date">
@@ -22,13 +28,7 @@
             {{ sessionTimeLabel(session) }}
           </option>
         </select>
-        <input v-model.trim="search" class="search-input" placeholder="Tìm theo mã học viên…" aria-label="Tìm học viên" />
-      </div>
-      <div class="toolbar-actions">
-        <span class="cell-subtle">{{ filteredRows.length }} học viên</span>
-        <button class="button secondary" :disabled="!selectedSessionId || selectedSessionId.startsWith('schedule:') || !filteredRows.length" @click="exportExcel">
-          Xuất Excel (.xls)
-        </button>
+        <input v-model.trim="search" class="search-input" placeholder="Tìm theo tên học viên…" aria-label="Tìm học viên" />
       </div>
     </div>
 
@@ -77,8 +77,7 @@
             <tbody>
               <tr v-for="row in filteredRows" :key="row.studentId">
                 <td>
-                  <strong class="cell-primary">{{ row.studentId.slice(0, 12) }}</strong>
-                  <span class="cell-subtle">Mã học viên</span>
+                  <strong class="cell-primary">{{ row.studentDisplayName }}</strong>
                 </td>
                 <td><StatusPill :value="row.statusLabel" :tone="row.statusTone" /></td>
                 <td>{{ row.firstJoinedAt ? formatDateTime(row.firstJoinedAt) : '—' }}</td>
@@ -122,8 +121,9 @@ import { errorMessage } from '../../../shared/api/http'
 import { useNavigationStore } from '../../../shared/stores/navigation'
 import { formatDateTime, type AttendanceRecord, type AttendanceSegment, type AttendanceSummary, type LearningClass, type LiveSession, type Schedule } from '../../../shared/types'
 
-type Enrollment = { id: string; studentId: string; status: string | number; enrolledAt: string }
+type Enrollment = { id: string; studentId: string; studentDisplayName?: string; status: string | number; enrolledAt: string }
 type ReportRow = {
+  studentDisplayName: string
   studentId: string
   statusLabel: string
   statusTone: string
@@ -192,7 +192,7 @@ const reportRows = computed<ReportRow[]>(() => {
 
 const filteredRows = computed(() => {
   const normalized = search.value.toLowerCase()
-  return normalized ? reportRows.value.filter(row => row.studentId.toLowerCase().includes(normalized)) : reportRows.value
+  return normalized ? reportRows.value.filter(row => row.studentDisplayName.toLocaleLowerCase('vi').includes(normalized) || row.studentId.toLowerCase().includes(normalized)) : reportRows.value
 })
 
 const averageDuration = computed(() => {
@@ -277,11 +277,12 @@ function toReportRow(studentId: string, record?: AttendanceRecord): ReportRow {
   const statusLabel = record ? attendanceStatusLabel(record.status) : 'Chưa ghi nhận'
   return {
     studentId,
+    studentDisplayName: record?.studentDisplayName || enrollments.value.find(item => item.studentId === studentId)?.studentDisplayName || 'Học viên chưa có tên',
     statusLabel,
     statusTone: record ? attendanceStatusTone(record.status) : 'muted',
     firstJoinedAt: record?.firstJoinedAt,
     lastLeftAt: record?.lastLeftAt,
-    lateLabel: record?.firstJoinedAt ? lateLabel(record.firstJoinedAt) : '—',
+    lateLabel: record?.firstJoinedAt ? lateLabel(record) : '—',
     totalDuration: record ? formatDuration(record.totalDuration) : '0 phút',
     reconnectCount: record?.reconnectCount || 0,
     segments: record?.segments || [],
@@ -302,28 +303,21 @@ function attendanceStatusTone(value: string | number) {
   return 'success'
 }
 
-function lateLabel(joinedAt: string) {
-  const session = selectedSession.value
-  if (!session) return '—'
-  const schedule = session.classScheduleId
-    ? schedules.value.find(item => item.id === session.classScheduleId)?.startsAt
-    : undefined
-  const scheduleEnd = session.classScheduleId
-    ? schedules.value.find(item => item.id === session.classScheduleId)?.endsAt
-    : undefined
-  // If a scheduled occurrence is already over when a teacher opens a live
-  // room, the runtime start is the start of that actual occurrence. This
-  // avoids reporting days of artificial lateness for a late-created demo/live
-  // session while preserving the configured late threshold for normal joins.
-  const scheduledStart = schedule ? new Date(schedule).getTime() : 0
-  const runtimeStart = session.startedAt ? new Date(session.startedAt).getTime() : 0
-  const scheduledEnd = scheduleEnd ? new Date(scheduleEnd).getTime() : 0
-  const baselineStart = scheduledStart && runtimeStart && scheduledEnd && runtimeStart > scheduledEnd
-    ? runtimeStart
-    : scheduledStart || runtimeStart || new Date(joinedAt).getTime()
-  const baseline = baselineStart + session.lateAfterMinutes * 60_000
-  const delay = Math.max(0, Math.floor((new Date(joinedAt).getTime() - baseline) / 60_000))
-  return delay ? `${delay} phút` : 'Đúng giờ'
+function lateLabel(record: AttendanceRecord) {
+  const joinedAt = record.firstJoinedAt
+  if (!joinedAt) return '—'
+
+  // Only the persisted cutoff can establish historical lateness. A current
+  // schedule may have changed since this attendance record was created.
+  const cutoff = record.lateCutoffAt ? new Date(record.lateCutoffAt).getTime() : NaN
+  const delay = Math.max(0, Math.ceil((new Date(joinedAt).getTime() - cutoff) / 1000))
+  if (delay > 0 && delay < 60) return 'Dưới 1 phút'
+  if (delay >= 60) return formatSeconds(delay)
+  // Legacy/manual statuses remain authoritative; do not invent a historical
+  // cutoff or label a persisted Late record as on time.
+  if (record.status === 1 || String(record.status).toLowerCase() === 'late')
+    return record.adjustedBy ? 'Giảng viên ghi nhận đi trễ' : 'Chưa xác định thời lượng'
+  return 'Đúng giờ'
 }
 
 function sessionLabel(session: LiveSession) {
@@ -465,13 +459,13 @@ function escapeHtml(value: unknown) {
 function exportExcel() {
   const headers = ['Học viên', 'Trạng thái', 'Vào lần đầu', 'Đi trễ', 'Tổng thời gian', 'Số lần vào lại', 'Rời lần cuối', 'Lịch sử vào / rời']
   const rows = filteredRows.value.map(row => [
-    row.studentId,
+    row.studentDisplayName,
     row.statusLabel,
     row.firstJoinedAt ? formatDateTime(row.firstJoinedAt) : '',
     row.lateLabel,
     row.totalDuration,
     row.reconnectCount,
-    row.lastLeftAt ? formatDateTime(row.lastLeftAt) : 'Đang học',
+    row.lastLeftAt ? formatDateTime(row.lastLeftAt) : row.firstJoinedAt ? 'Đang học' : '—',
     row.historyLines.join(' | ')
   ])
   const title = selectedSession.value ? sessionDisplayLabel(selectedSession.value) : 'Theo dõi lớp học'

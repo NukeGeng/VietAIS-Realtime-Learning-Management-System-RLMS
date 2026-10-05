@@ -524,6 +524,12 @@ bài khi đã có trong header workspace.
 
 ## Topic management
 
+Danh sách nhóm được chia trang, tối đa 5 nhóm mỗi trang. Toàn bộ hàng nhóm
+có thể được nhấn để mở chi tiết nhóm; khi rê chuột hoặc đưa focus bàn phím vào
+hàng, hiển thị tóm tắt thành viên và trạng thái đề tài. Trạng thái `Mở nhóm` /
+`Đang mở` luôn nằm ở mép phải cùng một vị trí. Mở một nhóm không làm thay đổi
+kích thước cột danh sách; phần chi tiết chỉ tải cho nhóm đang được chọn.
+
 Teacher nhìn:
 
 ```text

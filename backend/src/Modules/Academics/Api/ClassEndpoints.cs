@@ -318,6 +318,7 @@ public static class ClassEndpoints
         Guid classId,
         HttpContext context,
         IQuerySession session,
+        IIdentityDirectory identity,
         CancellationToken cancellationToken)
     {
         var learningClass = await session.LoadAsync<LearningClass>(classId, cancellationToken);
@@ -350,7 +351,12 @@ public static class ClassEndpoints
 
         var enrollments = await query.OrderBy(enrollment => enrollment.EnrolledAt)
             .ToListAsync(cancellationToken);
-        return Results.Ok(enrollments.Select(EnrollmentResponse.From));
+        var names = await identity.FindMemberNamesAsync(actor!.OrganizationId,
+            enrollments.Select(enrollment => enrollment.StudentId).ToArray(), cancellationToken);
+        return Results.Ok(enrollments.Select(enrollment => EnrollmentResponse.From(enrollment) with
+        {
+            StudentDisplayName = names.GetValueOrDefault(enrollment.StudentId)
+        }));
     }
 
     private static async Task<IResult> EnrollAsync(
@@ -1068,6 +1074,8 @@ public sealed record TeacherAssignmentResponse(Guid Id, Guid LearningClassId, Gu
 public sealed record EnrollmentResponse(Guid Id, Guid LearningClassId, Guid StudentId,
     EnrollmentStatus Status, DateTimeOffset EnrolledAt)
 {
+    public string? StudentDisplayName { get; init; }
+
     public static EnrollmentResponse From(Enrollment enrollment) => new(enrollment.Id,
         enrollment.LearningClassId, enrollment.StudentId, enrollment.Status, enrollment.EnrolledAt);
 }
