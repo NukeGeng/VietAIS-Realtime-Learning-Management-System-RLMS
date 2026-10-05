@@ -1,0 +1,28 @@
+using System.Security.Cryptography;
+using System.Text;
+
+namespace LearningPlatform.Learning.Domain;
+
+public static class LearningConstants
+{
+    public static Guid ProgressId(Guid activityId, Guid studentId) =>
+        StableId($"learning-progress:{activityId:D}:{studentId:D}");
+
+    public static Guid HistoryId(Guid activityId, Guid studentId, int gradeVersion) =>
+        StableId($"learning-history:{activityId:D}:{studentId:D}:{gradeVersion}");
+
+    public static Guid LessonProgressId(Guid lessonId, Guid learningClassId, Guid studentId) =>
+        StableId($"lesson-progress:{lessonId:D}:{learningClassId:D}:{studentId:D}");
+
+    public static Guid CurriculumLessonProgressId(Guid curriculumId, Guid lessonId,
+        Guid learningClassId, Guid studentId) =>
+        StableId($"curriculum-lesson-progress:{curriculumId:D}:{lessonId:D}:{learningClassId:D}:{studentId:D}");
+
+    private static Guid StableId(string value)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        hash[6] = (byte)((hash[6] & 0x0F) | 0x50);
+        hash[8] = (byte)((hash[8] & 0x3F) | 0x80);
+        return new Guid(hash[..16]);
+    }
+}

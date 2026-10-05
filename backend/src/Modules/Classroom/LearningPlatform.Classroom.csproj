@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Marten" />
+    <PackageReference Include="WolverineFx" />
+    <PackageReference Include="StackExchange.Redis" />
+    <ProjectReference Include="../Academics/LearningPlatform.Academics.csproj" />
+    <ProjectReference Include="../Identity/LearningPlatform.Identity.csproj" />
+  </ItemGroup>
+</Project>

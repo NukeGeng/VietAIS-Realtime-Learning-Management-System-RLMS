@@ -1,0 +1,48 @@
+<!doctype html><html lang="vi"><meta charset="utf-8"><title>WebRTC regression</title>
+<button id="run">Kiểm thử WebRTC</button><pre id="result">Chưa chạy</pre>
+<script type="module">
+import {createMediaLanes, receiveMediaLanes} from '/src/features/classrooms/media/mediaLanes.ts'
+const result=document.querySelector('#result')
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
+async function scenario(senderIsAnswerer, restart) {
+  const canvas=document.createElement('canvas');canvas.width=640;canvas.height=360
+  const context=canvas.getContext('2d');const stream=canvas.captureStream(20)
+  const timer=setInterval(()=>{context.fillStyle=`hsl(${Date.now()%360},50%,50%)`;context.fillRect(0,0,640,360)},50)
+  let peers=[]
+  try {
+    for(let round=0;round<(restart?2:1);round++) {
+      const a=new RTCPeerConnection(),b=new RTCPeerConnection();peers=[a,b]
+      const pendingA=[],pendingB=[]
+      a.onicecandidate=({candidate})=>{if(candidate){if(b.remoteDescription)b.addIceCandidate(candidate);else pendingB.push(candidate)}}
+      b.onicecandidate=({candidate})=>{if(candidate){if(a.remoteDescription)a.addIceCandidate(candidate);else pendingA.push(candidate)}}
+      const al=createMediaLanes(a)
+      if(!senderIsAnswerer)await al.screen.sender.replaceTrack(stream.getVideoTracks()[0])
+      await a.setLocalDescription(await a.createOffer());await b.setRemoteDescription(a.localDescription)
+      const bl=receiveMediaLanes(b)
+      if(senderIsAnswerer)await bl.screen.sender.replaceTrack(stream.getVideoTracks()[0])
+      await b.setLocalDescription(await b.createAnswer());await a.setRemoteDescription(b.localDescription)
+      await Promise.all([...pendingA.map(c=>a.addIceCandidate(c)),...pendingB.map(c=>b.addIceCandidate(c))])
+      const receiver=senderIsAnswerer?al:bl
+      let frames=0
+      for(let attempt=0;attempt<80;attempt++) {
+        await delay(100)
+        const stats=await receiver.screen.receiver.getStats()
+        stats.forEach(s=>{if(s.type==='inbound-rtp')frames=s.framesReceived||0})
+        if(frames>0)break
+      }
+      if(!frames)throw Error('Không nhận được frame trình bày')
+      if(receiver.screen===receiver.camera)throw Error('Track camera trùng trình bày')
+      // Camera can coexist without replacing the presentation lane.
+      const lanes=senderIsAnswerer?bl:al
+      await lanes.camera.sender.replaceTrack(stream.getVideoTracks()[0])
+      await delay(150)
+      if(lanes.screen.sender.track!==stream.getVideoTracks()[0])throw Error('Mất track trình bày khi bật cam')
+      peers.forEach(p=>p.close());peers=[]
+    }
+  } finally {peers.forEach(p=>p.close());clearInterval(timer);stream.getTracks().forEach(t=>t.stop())}
+}
+document.querySelector('#run').onclick=async()=>{
+ result.textContent='Đang chạy…'
+ try {for(const answerer of [false,true])for(const restart of [false,true]){await scenario(answerer,restart);result.textContent+=`\nPASS sender=${answerer?'answerer':'offerer'}, reconnect=${restart}`}result.textContent+='\nHoàn tất 4/4'}catch(e){result.textContent+='\nFAIL '+e.message}
+}
+</script></html>
