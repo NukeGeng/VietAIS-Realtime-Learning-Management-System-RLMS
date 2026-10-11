@@ -1,0 +1,21 @@
+using JasperFx;
+using LearningPlatform.Academics.Contracts;
+using LearningPlatform.Academics.Domain;
+using LearningPlatform.Identity.Authorization;
+using LearningPlatform.Identity.Domain;
+using Marten;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
+using Wolverine;
+
+namespace LearningPlatform.Academics.Api;
+
+public sealed record ScheduleResponse(Guid Id, Guid LearningClassId, Guid TeacherId,
+    DateTimeOffset StartsAt, DateTimeOffset EndsAt, string? Recurrence, ScheduleStatus Status)
+{
+    public static ScheduleResponse From(ClassSchedule schedule) => new(schedule.Id,
+        schedule.LearningClassId, schedule.TeacherId, schedule.StartsAt, schedule.EndsAt,
+        schedule.Recurrence, schedule.Status);
+}

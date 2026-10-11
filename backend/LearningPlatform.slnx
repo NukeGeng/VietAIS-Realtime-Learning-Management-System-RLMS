@@ -1,0 +1,65 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/BuildingBlocks/" />
+  <Folder Name="/src/BuildingBlocks/Caching/">
+    <Project Path="src/BuildingBlocks/Caching/LearningPlatform.BuildingBlocks.Caching.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/Core/">
+    <Project Path="src/BuildingBlocks/Core/LearningPlatform.BuildingBlocks.Core.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/Persistence/">
+    <Project Path="src/BuildingBlocks/Persistence/LearningPlatform.BuildingBlocks.Persistence.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/ServiceDefaults/">
+    <Project Path="src/BuildingBlocks/ServiceDefaults/LearningPlatform.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/Storage/">
+    <Project Path="src/BuildingBlocks/Storage/LearningPlatform.BuildingBlocks.Storage.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/Web/">
+    <Project Path="src/BuildingBlocks/Web/LearningPlatform.BuildingBlocks.Web.csproj" />
+  </Folder>
+  <Folder Name="/src/Host/">
+    <Project Path="src/Host/LearningPlatform.Api/LearningPlatform.Api.csproj" />
+    <Project Path="src/Host/LearningPlatform.AppHost/LearningPlatform.AppHost.csproj" />
+    <Project Path="src/Host/LearningPlatform.DbMigrator/LearningPlatform.DbMigrator.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Academics/">
+    <Project Path="src/Modules/Academics/Modules.Academics.Contracts/Modules.Academics.Contracts.csproj" />
+    <Project Path="src/Modules/Academics/Modules.Academics/Modules.Academics.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Assessment/">
+    <Project Path="src/Modules/Assessment/Modules.Assessment.Contracts/Modules.Assessment.Contracts.csproj" />
+    <Project Path="src/Modules/Assessment/Modules.Assessment/Modules.Assessment.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Classroom/">
+    <Project Path="src/Modules/Classroom/Modules.Classroom.Contracts/Modules.Classroom.Contracts.csproj" />
+    <Project Path="src/Modules/Classroom/Modules.Classroom/Modules.Classroom.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Communication/">
+    <Project Path="src/Modules/Communication/Modules.Communication.Contracts/Modules.Communication.Contracts.csproj" />
+    <Project Path="src/Modules/Communication/Modules.Communication/Modules.Communication.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Identity/">
+    <Project Path="src/Modules/Identity/Modules.Identity.Contracts/Modules.Identity.Contracts.csproj" />
+    <Project Path="src/Modules/Identity/Modules.Identity/Modules.Identity.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Learning/">
+    <Project Path="src/Modules/Learning/Modules.Learning.Contracts/Modules.Learning.Contracts.csproj" />
+    <Project Path="src/Modules/Learning/Modules.Learning/Modules.Learning.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Reporting/">
+    <Project Path="src/Modules/Reporting/Modules.Reporting/Modules.Reporting.csproj" />
+  </Folder>
+  <Folder Name="/src/Tests/" />
+  <Folder Name="/src/Tests/ArchitectureTests/">
+    <Project Path="src/Tests/ArchitectureTests/LearningPlatform.ArchitectureTests.csproj" />
+  </Folder>
+  <Folder Name="/src/Tests/IntegrationTests/">
+    <Project Path="src/Tests/IntegrationTests/LearningPlatform.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/src/Tests/UnitTests/">
+    <Project Path="src/Tests/UnitTests/LearningPlatform.UnitTests.csproj" />
+  </Folder>
+</Solution>

@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Marten" />
-    <PackageReference Include="WolverineFx" />
-    <ProjectReference Include="../Identity/LearningPlatform.Identity.csproj" />
-  </ItemGroup>
-</Project>

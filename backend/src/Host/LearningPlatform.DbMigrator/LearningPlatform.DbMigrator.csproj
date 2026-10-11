@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../BuildingBlocks/ServiceDefaults/LearningPlatform.ServiceDefaults.csproj" />
+    <ProjectReference Include="../../BuildingBlocks/Persistence/LearningPlatform.BuildingBlocks.Persistence.csproj" />
+    <ProjectReference Include="../../BuildingBlocks/Caching/LearningPlatform.BuildingBlocks.Caching.csproj" />
+    <ProjectReference Include="../../BuildingBlocks/Storage/LearningPlatform.BuildingBlocks.Storage.csproj" />
+    <ProjectReference Include="../../Modules/Academics/Modules.Academics/Modules.Academics.csproj" />
+    <ProjectReference Include="../../Modules/Assessment/Modules.Assessment/Modules.Assessment.csproj" />
+    <ProjectReference Include="../../Modules/Classroom/Modules.Classroom/Modules.Classroom.csproj" />
+    <ProjectReference Include="../../Modules/Communication/Modules.Communication/Modules.Communication.csproj" />
+    <ProjectReference Include="../../Modules/Identity/Modules.Identity/Modules.Identity.csproj" />
+    <ProjectReference Include="../../Modules/Learning/Modules.Learning/Modules.Learning.csproj" />
+    <ProjectReference Include="../../Modules/Reporting/Modules.Reporting/Modules.Reporting.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Compile Include="../ModuleCatalog.cs" Link="ModuleCatalog.cs" />
+    <None Include="../LearningPlatform.Api/appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../LearningPlatform.Api/appsettings.Development.json" Link="appsettings.Development.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../LearningPlatform.Api/appsettings.Local.json" Link="appsettings.Local.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Condition="Exists('../LearningPlatform.Api/appsettings.Local.json')" />
+  </ItemGroup>
+</Project>

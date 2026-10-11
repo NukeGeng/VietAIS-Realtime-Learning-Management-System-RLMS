@@ -1,0 +1,25 @@
+{
+  "Academics": [],
+  "Assessment": [
+    "Academics",
+    "Classroom"
+  ],
+  "Classroom": [
+    "Academics"
+  ],
+  "Communication": [
+    "Academics",
+    "Classroom"
+  ],
+  "Identity": [],
+  "Learning": [
+    "Academics",
+    "Classroom"
+  ],
+  "Reporting": [
+    "Academics",
+    "Assessment",
+    "Classroom",
+    "Learning"
+  ]
+}

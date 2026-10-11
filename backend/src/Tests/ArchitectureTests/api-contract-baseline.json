@@ -1,0 +1,944 @@
+[
+  {
+    "Method": "GET",
+    "Route": "/api/academics/classes",
+    "Policy": "academics-classes-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/classes",
+    "Policy": "academics-classes-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/academics/classes/{classId:guid}",
+    "Policy": "academics-classes-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/academics/classes/{classId:guid}/curriculums",
+    "Policy": "academics-classes-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/classes/{classId:guid}/curriculums",
+    "Policy": "academics-classes-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/academics/classes/{classId:guid}/enrollments",
+    "Policy": "academics-enrollments-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/classes/{classId:guid}/enrollments",
+    "Policy": "academics-enrollments-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "DELETE",
+    "Route": "/api/academics/classes/{classId:guid}/enrollments/{studentId:guid}",
+    "Policy": "academics-enrollments-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/academics/classes/{classId:guid}/schedules",
+    "Policy": "academics-scheduling-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/classes/{classId:guid}/schedules",
+    "Policy": "academics-scheduling-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/classes/{classId:guid}/schedules/{scheduleId:guid}/cancel",
+    "Policy": "academics-scheduling-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/classes/{classId:guid}/schedules/{scheduleId:guid}/reschedule",
+    "Policy": "academics-scheduling-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/classes/{classId:guid}/status",
+    "Policy": "academics-classes-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/classes/{classId:guid}/teachers",
+    "Policy": "academics-classes-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "DELETE",
+    "Route": "/api/academics/classes/{classId:guid}/teachers/{teacherId:guid}",
+    "Policy": "academics-classes-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/academics/courses",
+    "Policy": "academics-courses-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/courses",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/academics/courses/{courseId:guid}",
+    "Policy": "academics-courses-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "PUT",
+    "Route": "/api/academics/courses/{courseId:guid}",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/courses/{courseId:guid}/archive",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/academics/courses/{courseId:guid}/curriculums",
+    "Policy": "academics-courses-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/courses/{courseId:guid}/curriculums",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/courses/{courseId:guid}/modules",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "PUT",
+    "Route": "/api/academics/courses/{courseId:guid}/modules/{moduleId:guid}",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/courses/{courseId:guid}/modules/{moduleId:guid}/archive",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/courses/{courseId:guid}/modules/{moduleId:guid}/lessons",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "PUT",
+    "Route": "/api/academics/courses/{courseId:guid}/modules/{moduleId:guid}/lessons/{lessonId:guid}",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/courses/{courseId:guid}/modules/{moduleId:guid}/lessons/{lessonId:guid}/archive",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/courses/{courseId:guid}/modules/{moduleId:guid}/lessons/{lessonId:guid}/publish",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/courses/{courseId:guid}/modules/{moduleId:guid}/publish",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/courses/{courseId:guid}/publish",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/academics/curriculums/{curriculumId:guid}/publish",
+    "Policy": "academics-courses-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/academics/schedules/me",
+    "Policy": "academics-scheduling-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/activities/{activityId:guid}",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/activities/{activityId:guid}/attempt",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "PUT",
+    "Route": "/api/assessment/activities/{activityId:guid}/attempt/answers/{questionId:guid}",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/attempt/help",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/attempt/help/withdraw",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/attempt/idle",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/attempt/questions/{questionId:guid}/open",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/attempt/resume",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/attempt/start",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/attempt/submit",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/close",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/pause",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/publish",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/questions",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/activities/{activityId:guid}/result",
+    "Policy": "assessment-results-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/resume",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/activities/{activityId:guid}/rubric",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/activities/{activityId:guid}/rubric",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/attempts/{attemptId:guid}/detail",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/attempts/{attemptId:guid}/help/acknowledge",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/attempts/{attemptId:guid}/help/resolve",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/classes/{classId:guid}/activities",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/classes/{classId:guid}/activities",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/classes/{classId:guid}/activities/{activityId:guid}/overview",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/classes/{classId:guid}/essay-assignments",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/classes/{classId:guid}/essay-assignments",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/classes/{classId:guid}/gradebook",
+    "Policy": "assessment-gradebook-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/classes/{classId:guid}/gradebook/me",
+    "Policy": "assessment-results-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/classes/{classId:guid}/help-requests",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/essay-assignments/{assignmentId:guid}",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-assignments/{assignmentId:guid}/close",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/essay-assignments/{assignmentId:guid}/groups",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-assignments/{assignmentId:guid}/groups",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/essay-assignments/{assignmentId:guid}/groups/{groupId:guid}/result",
+    "Policy": "assessment-results-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-assignments/{assignmentId:guid}/groups/{groupId:guid}/submissions",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-assignments/{assignmentId:guid}/publish",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-grade-entries/{gradeEntryId:guid}/publish",
+    "Policy": "assessment-submissions-grade",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-groups/{groupId:guid}/members",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/essay-groups/{groupId:guid}/submissions",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/essay-groups/{groupId:guid}/topic",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-groups/{groupId:guid}/topic",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-groups/{groupId:guid}/topic/change-request",
+    "Policy": "assessment-activities-submit",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/essay-submissions/{submissionId:guid}/file",
+    "Policy": "assessment-results-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-submissions/{submissionId:guid}/grade",
+    "Policy": "assessment-submissions-grade",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-topics/{topicId:guid}/approve",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-topics/{topicId:guid}/lock",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-topics/{topicId:guid}/reject",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/essay-topics/{topicId:guid}/request-changes",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/grade-entries/{gradeEntryId:guid}/adjust",
+    "Policy": "assessment-gradebook-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/grade-entries/{gradeEntryId:guid}/adjustments",
+    "Policy": "assessment-gradebook-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/grade-entries/{gradeEntryId:guid}/publish",
+    "Policy": "assessment-submissions-grade",
+    "Anonymous": false
+  },
+  {
+    "Method": "PUT",
+    "Route": "/api/assessment/grade-items/{gradeItemId:guid}",
+    "Policy": "assessment-gradebook-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/question-bank",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/question-bank",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/question-bank/{itemId:guid}",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/question-bank/{itemId:guid}/versions",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/assessment/submissions/{submissionId:guid}/grade",
+    "Policy": "assessment-submissions-grade",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/assessment/submissions/{submissionId:guid}/grade",
+    "Policy": "assessment-submissions-grade",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/classroom/classes/{classId:guid}/sessions",
+    "Policy": "classroom-live-session-join",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/classes/{classId:guid}/sessions",
+    "Policy": "classroom-live-session-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/classroom/sessions/{sessionId:guid}",
+    "Policy": "classroom-live-session-join",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/activities/{activityId:guid}/publish",
+    "Policy": "assessment-activities-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/attendance",
+    "Policy": "classroom-attendance-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/attendance/{studentId:guid}",
+    "Policy": "classroom-attendance-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/end",
+    "Policy": "classroom-live-session-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/join",
+    "Policy": "classroom-live-session-join",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/leave",
+    "Policy": "classroom-live-session-join",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/messages",
+    "Policy": "classroom-live-session-join",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/messages",
+    "Policy": "classroom-live-session-join",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/moderation",
+    "Policy": "classroom-live-session-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/moderation/{studentId:guid}/{action}",
+    "Policy": "classroom-live-session-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "DELETE",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/raise-hand",
+    "Policy": "classroom-live-session-join",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/raise-hand",
+    "Policy": "classroom-live-session-join",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/raise-hands",
+    "Policy": "classroom-live-session-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/raise-hands/{studentId:guid}/clear",
+    "Policy": "classroom-live-session-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/reconnect",
+    "Policy": "classroom-live-session-join",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/classroom/sessions/{sessionId:guid}/start",
+    "Policy": "classroom-live-session-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/communication/announcements/{announcementId:guid}",
+    "Policy": "communication-announcements-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/communication/announcements/{announcementId:guid}/archive",
+    "Policy": "communication-announcements-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/communication/announcements/{announcementId:guid}/publish",
+    "Policy": "communication-announcements-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/communication/classes/{classId:guid}/announcements",
+    "Policy": "communication-announcements-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/communication/classes/{classId:guid}/announcements",
+    "Policy": "communication-announcements-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/communication/notifications",
+    "Policy": "communication-notifications-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/communication/notifications/{notificationId:guid}/read",
+    "Policy": "communication-notifications-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/identity/bootstrap",
+    "Policy": null,
+    "Anonymous": true
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/identity/csrf",
+    "Policy": null,
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/identity/login",
+    "Policy": null,
+    "Anonymous": true
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/identity/logout",
+    "Policy": null,
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/identity/me",
+    "Policy": null,
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/identity/organization",
+    "Policy": "academics-classes-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "PUT",
+    "Route": "/api/identity/organization",
+    "Policy": "identity-organizations-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/identity/roles",
+    "Policy": "identity-roles-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/identity/roles",
+    "Policy": "identity-roles-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "DELETE",
+    "Route": "/api/identity/roles/{roleId:guid}",
+    "Policy": "identity-roles-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "PUT",
+    "Route": "/api/identity/roles/{roleId:guid}",
+    "Policy": "identity-roles-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/identity/users",
+    "Policy": "identity-users-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/identity/users",
+    "Policy": "identity-users-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "PUT",
+    "Route": "/api/identity/users/{userId:guid}",
+    "Policy": "identity-users-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/identity/users/{userId:guid}/disable",
+    "Policy": "identity-users-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/identity/users/{userId:guid}/enable",
+    "Policy": "identity-users-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/learning/classes/{classId:guid}/course-content",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/learning/classes/{classId:guid}/course-content/lessons/{lessonId:guid}",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/learning/classes/{classId:guid}/course-progress",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/learning/classes/{classId:guid}/course-progress/me",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/learning/classes/{classId:guid}/curriculums",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/learning/classes/{classId:guid}/curriculums/{curriculumId:guid}",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/learning/classes/{classId:guid}/curriculums/{curriculumId:guid}/lessons/{lessonId:guid}",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/learning/classes/{classId:guid}/curriculums/{curriculumId:guid}/lessons/{lessonId:guid}/progress",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/learning/classes/{classId:guid}/lessons/{lessonId:guid}/progress",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/learning/classes/{classId:guid}/progress",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/learning/classes/{classId:guid}/progress/me",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/learning/classes/{classId:guid}/resources",
+    "Policy": "learning-resources-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/learning/classes/{classId:guid}/resources",
+    "Policy": "learning-resources-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/learning/classes/{classId:guid}/resources/upload",
+    "Policy": "learning-resources-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/learning/resources/{resourceId:guid}",
+    "Policy": "learning-resources-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/learning/resources/{resourceId:guid}/archive",
+    "Policy": "learning-resources-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "POST",
+    "Route": "/api/learning/resources/{resourceId:guid}/publish",
+    "Policy": "learning-resources-manage",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/reporting/activities/{activityId:guid}/summary",
+    "Policy": "reporting-classes-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/reporting/classes/{classId:guid}/students/me",
+    "Policy": "learning-progress-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/reporting/classes/{classId:guid}/students/{studentId:guid}",
+    "Policy": "reporting-students-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/reporting/classes/{classId:guid}/summary",
+    "Policy": "reporting-classes-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/reporting/courses/{courseId:guid}/summary",
+    "Policy": "reporting-classes-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/api/reporting/essay-assignments/{assignmentId:guid}/summary",
+    "Policy": "reporting-classes-read",
+    "Anonymous": false
+  },
+  {
+    "Method": "GET",
+    "Route": "/health/live",
+    "Policy": null,
+    "Anonymous": true
+  }
+]

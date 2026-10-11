@@ -38,10 +38,11 @@ learning-platform/
 │       └── shared/
 │
 ├── backend/
-│   ├── LearningPlatform.sln
+│   ├── LearningPlatform.slnx
 │   ├── src/
-│   │   ├── Api/
-│   │   ├── Infrastructure/
+│   │   ├── Host/
+│   │   ├── BuildingBlocks/
+│   │   ├── Tests/
 │   │   └── Modules/
 │   │       ├── Identity/
 │   │       ├── Academics/
@@ -51,7 +52,7 @@ learning-platform/
 │   │       ├── Communication/
 │   │       └── Reporting/
 │   │
-│   └── tests/
+│   └── Directory.Packages.props
 │
 ├── infra/
 │
@@ -300,112 +301,92 @@ Không biến `shared/` thành nơi chứa business code chung chung.
 
 ---
 
-# 7. Backend
+# 7. Backend — FullStackHero organization
 
 ```text
 backend/
-│
-├── LearningPlatform.sln
-│
-├── src/
-│   │
-│   ├── Api/
-│   ├── Infrastructure/
-│   └── Modules/
-│       ├── Identity/
-│       ├── Academics/
-│       ├── Classroom/
-│       ├── Assessment/
-│       ├── Learning/
-│       ├── Communication/
-│       └── Reporting/
-│
-└── tests/
+├── LearningPlatform.slnx
+├── Directory.Build.props
+├── Directory.Packages.props
+└── src/
+    ├── Host/
+    │   ├── ModuleCatalog.cs
+    │   ├── LearningPlatform.Api/
+    │   ├── LearningPlatform.AppHost/
+    │   └── LearningPlatform.DbMigrator/
+    ├── BuildingBlocks/
+    │   ├── Core/
+    │   ├── Web/
+    │   ├── Persistence/
+    │   ├── Caching/
+    │   ├── Storage/
+    │   └── ServiceDefaults/
+    ├── Modules/
+    │   ├── Identity/
+    │   ├── Academics/
+    │   ├── Classroom/
+    │   ├── Assessment/
+    │   ├── Learning/
+    │   ├── Communication/
+    │   └── Reporting/
+    └── Tests/
+        ├── UnitTests/
+        ├── IntegrationTests/
+        └── ArchitectureTests/
 ```
 
-Business Core vẫn là **Modular Monolith**.
+Business Core vẫn là Modular Monolith. Mỗi module có project runtime
+`Modules.<Name>/Modules.<Name>.csproj`. Các contract được sử dụng xuyên module
+nằm trong `Modules.<Name>.Contracts`; không tạo contract project rỗng.
+Tên assembly runtime vẫn là `LearningPlatform.<Name>` để tương thích Marten/events.
+Các mục module bên dưới mô tả nghiệp vụ, không phải yêu cầu tạo thêm folder rỗng.
 
-Các folder trong `Modules/` là các khu vực nghiệp vụ lớn, không phải microservice.
+# 8. Backend — Host
 
----
+`LearningPlatform.Api` chỉ composition, HTTP middleware, health và mapping module.
+Authentication/policy implementation thuộc Identity; SignalR hub thuộc module sở hữu.
+`ModuleCatalog.cs` là danh sách module tường minh dùng chung cho API và migrator.
+`IModule` cung cấp ConfigureServices / MapEndpoints / ConfigureMessaging.
 
-# 8. Backend — Api
+`LearningPlatform.DbMigrator` áp dụng schema document, event và durable message
+trước API. API không tự sửa schema khi startup. Không seed hoặc reset dữ liệu.
+
+`LearningPlatform.AppHost` điều phối migrator, API, frontend và observability.
+Existing mode sử dụng infrastructure đang cấu hình. Managed mode điều phối cả
+PostgreSQL, Redis, MinIO và bucket init với volume hiện có của RLMS.
+
+# 9. Backend — BuildingBlocks
+
+BuildingBlocks chứa technical implementation và contract trung lập. Không được
+tham chiếu runtime module hoặc Host. Marten schema registration nằm trong từng
+module `Infrastructure/Persistence`; global tenant/schema policy nằm ở Persistence.
+Core chỉ có tenant/storage capability contract. Module adapter kết nối essay và
+learning-resource storage với S3 implementation, không làm BuildingBlocks phụ thuộc
+nghiệp vụ Assessment/Learning.
+
+# 10. Backend — Modules and features
 
 ```text
-src/Api/
-│
-├── Program.cs
-├── appsettings.json
-├── appsettings.Development.json
-│
-├── Middleware/
-├── Authentication/
-├── Authorization/
-├── Realtime/
-│   ├── Hubs/
-│   ├── Groups/
-│   └── Connections/
-│
-└── DependencyInjection/
+Modules/<Name>/
+├── Modules.<Name>/
+│   ├── <Name>Module.cs
+│   ├── Domain/
+│   ├── Features/<Area>/<UseCase>/
+│   │   └── <UseCase>Endpoint.cs
+│   ├── Infrastructure/Persistence/SchemaRegistration.cs
+│   ├── Api/                    # compatibility routing + shared endpoint support
+│   └── ...                    # realtime/attendance/projections where needed
+└── Modules.<Name>.Contracts/   # only actual public contracts; no runtime dependencies
 ```
 
-`Api/` chịu trách nhiệm:
-- application bootstrap;
-- HTTP boundary;
-- realtime connection boundary;
-- middleware;
-- authentication/authorization wiring.
+Endpoint registration, handler và permission metadata nằm theo use case. Request/
+response records nằm cạnh feature area, giữ wire contract. Domain business rules
+và existing Wolverine handlers được giữ nguyên. Không tạo mặc định tầng generic
+repository, mediator mới hoặc folder trống.
 
-Không chứa business rule.
-
----
-
-# 9. Backend — Infrastructure
-
-```text
-src/Infrastructure/
-│
-├── Persistence/
-│   ├── Marten/
-│   └── PostgreSql/
-│
-├── Messaging/
-│   └── Wolverine/
-│
-├── Cache/
-│   └── Redis/
-│
-├── Storage/
-│   └── ObjectStorage/
-│
-├── Media/
-│   ├── WebRtc/
-│   ├── Sfu/
-│   └── Turn/
-│
-└── Notifications/
-```
-
-Infrastructure cung cấp technical implementation.
-
-Không đặt business logic vào Infrastructure.
-
----
-
-# 10. Backend — Modules
-
-```text
-Modules/
-├── Identity/
-├── Academics/
-├── Classroom/
-├── Assessment/
-├── Learning/
-├── Communication/
-└── Reporting/
-```
-
-Chỉ có 7 khu vực cấp cao để tránh source tree bị phân mảnh.
+Existing cross-runtime dependencies là compatibility baseline được architecture
+tests khóa lại; không phải convention cho code mới. Migration sang read/command
+ports phải theo đúng ownership và kiểm thử semantic từng boundary.
 
 ---
 
@@ -794,7 +775,7 @@ nếu feature chưa cần.
 # 19. Tests
 
 ```text
-backend/tests/
+backend/src/Tests/
 ├── UnitTests/
 ├── IntegrationTests/
 ├── ArchitectureTests/
@@ -895,3 +876,8 @@ Khi một folder bắt đầu quá lớn:
 2. tách theo feature/subdomain;
 3. không vội tạo module top-level mới;
 4. chỉ tạo module top-level mới khi boundary thực sự độc lập và có giá trị maintain rõ ràng.
+
+
+## FullStackHero backend adoption (2026-10-11)
+
+See [backend adoption decision](docs/architecture/fullstackhero-backend.md). Backend now follows `src/Host`, `src/BuildingBlocks`, `src/Modules/<Name>/Modules.<Name>` and `src/Tests`. Runtime modules retain RLMS domain ownership, Marten/Wolverine and assembly identities. Modules register their schemas and message routes; shared technical BuildingBlocks must not depend on runtime business modules. Aspire manages application startup after the explicit database migrator. Existing cross-module runtime dependencies are an explicit compatibility baseline, not permission to introduce new dependencies.

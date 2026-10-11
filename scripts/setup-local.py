@@ -25,7 +25,14 @@ else:
         env_path.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
         os.chmod(env_path, 0o600)
 
-config_path = root / "backend/src/Api/appsettings.Local.json"
+config_path = root / "backend/src/Host/LearningPlatform.Api/appsettings.Local.json"
+config_path.parent.mkdir(parents=True, exist_ok=True)
+legacy_config_path = root / "backend/src/Api/appsettings.Local.json"
+if not config_path.exists() and legacy_config_path.exists():
+    # Preserve custom connection/media/identity settings on checkouts upgraded from the old layout.
+    fd = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(legacy_config_path.read_bytes())
 if not config_path.exists():
     config = {
         "ConnectionStrings": {
