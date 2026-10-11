@@ -56,6 +56,7 @@ Baseline: 44 unit tests pass. 68 integration tests fail during fixture construct
 - Dashboard verified in Chrome. API, frontend and database resources are running; one-shot migrator is Finished. Local screenshot: `artifacts/aspire-dashboard.jpg` (not committed).
 - Final restart log inspection: explicitly set Wolverine's application assembly to the composing Host rather than the Persistence registration assembly. A retained previous-node leader record produced two StopRemoteAgent acknowledgement timeout logs after rapid restart; the new node successfully assumed leadership and started its PostgreSQL agent. This restart residue is recorded rather than hidden or removed by resetting message storage.
 - CI portability: Aspire injects host-platform Dashboard/DCP packages, so AppHost uses `packages.$(NETCoreSdkRuntimeIdentifier).lock.json`. Checked-in macOS ARM64 and Linux x64 lock files support locked restore on the development machine and Ubuntu CI respectively. Other host platforms must generate their matching lock file with an unlocked restore before using locked mode. Package locks also reflect the reduced module project-reference graph.
+- Frontend enum-contract regression tests now read the relocated runtime/contract source files; assertions and enum order are unchanged. All 54 frontend regression tests pass.
 
 ## Run and deployment
 
