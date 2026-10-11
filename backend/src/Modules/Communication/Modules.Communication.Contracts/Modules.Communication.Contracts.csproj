@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LearningPlatform.Communication.Contracts</AssemblyName>
+    <RootNamespace>LearningPlatform.Communication</RootNamespace>
+  </PropertyGroup>
+</Project>

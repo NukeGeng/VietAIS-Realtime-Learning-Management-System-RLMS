@@ -415,3 +415,8 @@ Mọi tối ưu phải ưu tiên:
 5. cô lập lỗi;
 6. scale đúng workload;
 7. giữ nguyên business semantics.
+
+
+## FullStackHero backend adoption (2026-10-11)
+
+See [backend adoption decision](docs/architecture/fullstackhero-backend.md). Backend now follows `src/Host`, `src/BuildingBlocks`, `src/Modules/<Name>/Modules.<Name>` and `src/Tests`. Runtime modules retain RLMS domain ownership, Marten/Wolverine and assembly identities. Modules register their schemas and message routes; shared technical BuildingBlocks must not depend on runtime business modules. Aspire manages application startup after the explicit database migrator. Existing cross-module runtime dependencies are an explicit compatibility baseline, not permission to introduce new dependencies.

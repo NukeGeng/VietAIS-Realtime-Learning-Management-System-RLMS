@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LearningPlatform.Learning.Contracts</AssemblyName>
+    <RootNamespace>LearningPlatform.Learning</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Core/LearningPlatform.BuildingBlocks.Core.csproj" />
+  </ItemGroup>
+</Project>

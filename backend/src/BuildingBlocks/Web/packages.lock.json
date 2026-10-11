@@ -1,0 +1,82 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "WolverineFx": {
+        "type": "Direct",
+        "requested": "[6.33.0, )",
+        "resolved": "6.33.0",
+        "contentHash": "ioNpB4WnCJfL+HPbidptw5pWnFL0VCJFPcQDsQ0NOdJEL7/UaGiL1N1+OoHWqzNr5sUG+UWWioiKLNIjqMT+Gg==",
+        "dependencies": {
+          "JasperFx": "2.60.0",
+          "JasperFx.Events": "2.60.0",
+          "JasperFx.SourceGenerator": "2.60.0",
+          "NewId": "4.0.1"
+        }
+      },
+      "FastExpressionCompiler": {
+        "type": "Transitive",
+        "resolved": "5.4.1",
+        "contentHash": "nqMykMspK5cQd35Y8ulQzAujxCcCwZVUne32pC5xNpXqrbPCuKOPMWkKHJ3LveAZPm6dsVvump0TJ1SZ9RzfTQ=="
+      },
+      "ImTools": {
+        "type": "Transitive",
+        "resolved": "4.0.0",
+        "contentHash": "dms0JfLKC9AQbQX/EdpRjn59EjEvaCxIgv1z9YxbEQb5SiOVoo7vlIKdEySeEwUkWhN05rZnNpUpG+aw5VqPVQ=="
+      },
+      "JasperFx": {
+        "type": "Transitive",
+        "resolved": "2.60.0",
+        "contentHash": "yZhSu7Qc/3jrsU3SuSBD9OcN6kQP/KAkYWB8A1QMW84KoQh4UrpYn7kE4j7dn9VnAMpfxV/FwyjW0Zn6cmM7Zw==",
+        "dependencies": {
+          "FastExpressionCompiler": "5.4.1",
+          "ImTools": "4.0.0",
+          "Microsoft.Bcl.TimeProvider": "10.0.0",
+          "Polly.Core": "8.6.5",
+          "Spectre.Console": "0.55.0"
+        }
+      },
+      "JasperFx.Events": {
+        "type": "Transitive",
+        "resolved": "2.60.0",
+        "contentHash": "c4nNvlcCj2uI3+X8aZvKhJBGEUSic8n2iC8FjeZOPSR3KSrcZJpSYHLPSVlAE5+bmkvvKSK/X5KrYAeLI9jH+w==",
+        "dependencies": {
+          "JasperFx": "2.60.0"
+        }
+      },
+      "JasperFx.SourceGenerator": {
+        "type": "Transitive",
+        "resolved": "2.60.0",
+        "contentHash": "+lTMnjLDPeha6ut5R8oKLyDDFUqzFK2SIiwPLp00hfH9zGQFNrhKQBCSLUxvn3H9xyFQhG8iXPztd6n75L0epA=="
+      },
+      "Microsoft.Bcl.TimeProvider": {
+        "type": "Transitive",
+        "resolved": "10.0.0",
+        "contentHash": "bUubrBD6tRJE3V1kvRloYc6NymH3R5oFKjAS9e0ELNx6u0ZR+zjps9dDQyjgqN/rArzl7f+21KGszj3YRN7F2Q=="
+      },
+      "NewId": {
+        "type": "Transitive",
+        "resolved": "4.0.1",
+        "contentHash": "jegBasNndmG21G3BmT51suFDCIz/sLN81j+IxmkZ4iWoaDi8LygeHiyNnYbXz5OQh9nCRJFIx1+PJrlYi1Gc9Q=="
+      },
+      "Polly.Core": {
+        "type": "Transitive",
+        "resolved": "8.6.5",
+        "contentHash": "t+sUVrIwvo7UmsgHGgOG9F0GDZSRIm47u2ylH17Gvcv1q5hNEwgD5GoBlFyc0kh/pebmPyrAgvGsR/65ZBaXlg=="
+      },
+      "Spectre.Console": {
+        "type": "Transitive",
+        "resolved": "0.55.0",
+        "contentHash": "2TVhUHFsDux0Z+y2Hv4bFsOMuON4SuotEEKkMparFkp5Rm259naaaEQrN4Sv6C1cbsiGKPjfkJDGgUp+hZPjTw==",
+        "dependencies": {
+          "Spectre.Console.Ansi": "0.55.0"
+        }
+      },
+      "Spectre.Console.Ansi": {
+        "type": "Transitive",
+        "resolved": "0.55.0",
+        "contentHash": "GIfgOvuF8MpU52bprhwtDEtx0gmVIGOepM8bw0lH/TSMD0rg1Xp+5Y53kPG8rFVdcpbNANlhDQ5mEVVPO3/2Tg=="
+      }
+    }
+  }
+}

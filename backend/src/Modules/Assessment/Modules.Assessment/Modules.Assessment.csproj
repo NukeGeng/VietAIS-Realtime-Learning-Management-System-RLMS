@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LearningPlatform.Assessment</AssemblyName>
+    <RootNamespace>LearningPlatform.Assessment</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Marten" />
+    <PackageReference Include="WolverineFx" />
+    <ProjectReference Include="../../Academics/Modules.Academics/Modules.Academics.csproj" />
+    <ProjectReference Include="../../Classroom/Modules.Classroom/Modules.Classroom.csproj" />
+    <ProjectReference Include="../Modules.Assessment.Contracts/Modules.Assessment.Contracts.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Web/LearningPlatform.BuildingBlocks.Web.csproj" />
+    <ProjectReference Include="../../Identity/Modules.Identity.Contracts/Modules.Identity.Contracts.csproj" />
+    <ProjectReference Include="../../Academics/Modules.Academics.Contracts/Modules.Academics.Contracts.csproj" />
+    <ProjectReference Include="../../Classroom/Modules.Classroom.Contracts/Modules.Classroom.Contracts.csproj" />
+    <ProjectReference Include="../../Learning/Modules.Learning.Contracts/Modules.Learning.Contracts.csproj" />
+  </ItemGroup>
+</Project>

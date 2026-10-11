@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="../../BuildingBlocks/ServiceDefaults/LearningPlatform.ServiceDefaults.csproj" />
+    <ProjectReference Include="../../BuildingBlocks/Persistence/LearningPlatform.BuildingBlocks.Persistence.csproj" />
+    <ProjectReference Include="../../BuildingBlocks/Caching/LearningPlatform.BuildingBlocks.Caching.csproj" />
+    <ProjectReference Include="../../BuildingBlocks/Storage/LearningPlatform.BuildingBlocks.Storage.csproj" />
+    <ProjectReference Include="../../Modules/Academics/Modules.Academics/Modules.Academics.csproj" />
+    <ProjectReference Include="../../Modules/Assessment/Modules.Assessment/Modules.Assessment.csproj" />
+    <ProjectReference Include="../../Modules/Classroom/Modules.Classroom/Modules.Classroom.csproj" />
+    <ProjectReference Include="../../Modules/Communication/Modules.Communication/Modules.Communication.csproj" />
+    <ProjectReference Include="../../Modules/Identity/Modules.Identity/Modules.Identity.csproj" />
+    <ProjectReference Include="../../Modules/Learning/Modules.Learning/Modules.Learning.csproj" />
+    <ProjectReference Include="../../Modules/Reporting/Modules.Reporting/Modules.Reporting.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../ModuleCatalog.cs" Link="ModuleCatalog.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Update="appsettings.Local.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+</Project>

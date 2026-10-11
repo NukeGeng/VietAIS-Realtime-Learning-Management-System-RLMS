@@ -38,3 +38,5 @@ tiếp theo thứ tự cố định:
 
 Các thư mục modules và adr chỉ nhận tài liệu khi có quyết định hoặc nội dung
 thực sự cần lưu; không tạo file placeholder.
+
+- [FullStackHero backend adoption](architecture/fullstackhero-backend.md): audit, migration decision, Aspire startup and compatibility boundaries.

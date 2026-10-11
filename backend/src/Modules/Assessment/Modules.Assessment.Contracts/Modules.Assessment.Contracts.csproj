@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LearningPlatform.Assessment.Contracts</AssemblyName>
+    <RootNamespace>LearningPlatform.Assessment</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Core/LearningPlatform.BuildingBlocks.Core.csproj" />
+    <ProjectReference Include="../../Classroom/Modules.Classroom.Contracts/Modules.Classroom.Contracts.csproj" />
+  </ItemGroup>
+</Project>

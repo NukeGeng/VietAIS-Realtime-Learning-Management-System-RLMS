@@ -14,3 +14,4 @@
 .idea/
 .vs/
 artifacts/
+**/__pycache__/

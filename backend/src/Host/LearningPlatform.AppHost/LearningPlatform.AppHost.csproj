@@ -1,0 +1,15 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.4.0">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>rlms-apphost</UserSecretsId>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.JavaScript" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="MessagePack" />
+    <ProjectReference Include="../LearningPlatform.Api/LearningPlatform.Api.csproj" />
+    <ProjectReference Include="../LearningPlatform.DbMigrator/LearningPlatform.DbMigrator.csproj" />
+  </ItemGroup>
+</Project>

@@ -26,7 +26,7 @@ microservices migration vẫn nằm ngoài scope GOAL.
 
 ## Chạy local
 
-Yêu cầu .NET SDK theo `global.json`, Python 3 và Docker Compose.
+Yêu cầu .NET SDK theo `global.json`, Node.js/npm, Python 3 và Docker Compose.
 
 Từ thư mục gốc của repository, chạy toàn bộ hạ tầng, backend và frontend bằng một
 lệnh:
@@ -35,8 +35,11 @@ lệnh:
 ./run-dev.sh
 ```
 
-Script tự tạo cấu hình local nếu cần, khởi động PostgreSQL/Redis/MinIO, chờ API
-healthy rồi chạy Vite frontend. Nhấn `Ctrl+C` để dừng backend và frontend. Nếu
+Script tạo cấu hình local nếu cần rồi khởi động Aspire AppHost. AppHost chạy
+DbMigrator trước API, chờ API ready rồi chạy Vite, và cung cấp logs/traces/metrics
+qua Dashboard `https://localhost:17225` (terminal in đường dẫn đăng nhập). Mặc định
+PostgreSQL/Redis/MinIO dùng Compose để giữ môi trường và volume hiện có. Nhấn
+`Ctrl+C` để dừng AppHost, backend và frontend. Nếu
 chưa trust development certificate, chạy một lần:
 
 ```bash
@@ -45,8 +48,19 @@ dotnet dev-certs https --trust
 
 Lần khởi động đầu cần mạng để build image MinIO và MinIO Client từ binary
 GitHub Releases chính thức, kiểm tra SHA-256 và giữ phiên bản cố định trong
-`infra/compose/Dockerfile.minio` và `Dockerfile.mc`. Các lần sau dùng build cache.
+`infra/compose/Dockerfile.minio` và `Dockerfile.mc`. Các lần sau tái sử dụng image đã có; đặt `RLMS_REBUILD_STORAGE_IMAGES=1` nếu cần rebuild.
 Compose không cần pull image MinIO từ Quay; dữ liệu vẫn dùng volume hiện có.
+
+Có thể để Aspire quản lý cả infrastructure bằng:
+
+```bash
+RLMS_INFRASTRUCTURE_MODE=Managed bash run-dev.sh
+```
+
+Script dừng riêng container Compose của RLMS trước khi Aspire dùng lại các volume
+`rlms-dev_postgres-data` và `rlms-dev_object-data`. Không chạy hai mode cùng lúc.
+Không xóa volume, không seed lại dữ liệu. Chi tiết chuyển đổi:
+[FullStackHero backend adoption](docs/architecture/fullstackhero-backend.md).
 
 Các lệnh riêng lẻ vẫn có thể dùng khi cần debug từng thành phần:
 
@@ -55,7 +69,8 @@ python3 scripts/setup-local.py
 bash scripts/start-services.sh
 bash scripts/build.sh
 bash scripts/test.sh
-dotnet run --project backend/src/Api --launch-profile https
+dotnet run --project backend/src/Host/LearningPlatform.DbMigrator
+dotnet run --project backend/src/Host/LearningPlatform.Api --launch-profile https
 ```
 
 Chạy frontend ở terminal khác khi API đang lắng nghe tại `https://localhost:7041`:

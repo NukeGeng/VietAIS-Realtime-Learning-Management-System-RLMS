@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <ProjectReference Include="../../Modules/Identity/Modules.Identity/Modules.Identity.csproj" />
+    <ProjectReference Include="../../Modules/Academics/Modules.Academics/Modules.Academics.csproj" />
+    <ProjectReference Include="../../Modules/Assessment/Modules.Assessment/Modules.Assessment.csproj" />
+    <ProjectReference Include="../../Modules/Classroom/Modules.Classroom/Modules.Classroom.csproj" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

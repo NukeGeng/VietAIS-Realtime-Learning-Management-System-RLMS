@@ -259,7 +259,7 @@ def read_local_setting(name: str) -> str:
         for line in env_path.read_text().splitlines():
             if line.startswith(name + "="):
                 return line.split("=", 1)[1].strip()
-    local = ROOT / "backend/src/Api/appsettings.Local.json"
+    local = ROOT / "backend/src/Host/LearningPlatform.Api/appsettings.Local.json"
     if name == "RLMS_BOOTSTRAP_TOKEN" and local.exists():
         try:
             return json.loads(local.read_text())["Identity"]["BootstrapToken"]
