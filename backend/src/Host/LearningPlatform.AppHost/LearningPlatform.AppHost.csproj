@@ -3,6 +3,8 @@
     <OutputType>Exe</OutputType>
     <UserSecretsId>rlms-apphost</UserSecretsId>
     <IsPackable>false</IsPackable>
+    <!-- Aspire injects platform-specific Dashboard/DCP packages at restore time. -->
+    <NuGetLockFilePath>packages.$(NETCoreSdkRuntimeIdentifier).lock.json</NuGetLockFilePath>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.JavaScript" />

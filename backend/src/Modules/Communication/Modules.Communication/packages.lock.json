@@ -176,16 +176,12 @@
         "dependencies": {
           "LearningPlatform.Academics.Contracts": "[1.0.0, )",
           "LearningPlatform.BuildingBlocks.Web": "[1.0.0, )",
-          "LearningPlatform.Identity": "[1.0.0, )",
           "LearningPlatform.Identity.Contracts": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "WolverineFx": "[6.33.0, )"
         }
       },
       "LearningPlatform.Academics.Contracts": {
-        "type": "Project"
-      },
-      "learningplatform.buildingblocks.core": {
         "type": "Project"
       },
       "learningplatform.buildingblocks.web": {
@@ -201,7 +197,6 @@
           "LearningPlatform.Academics.Contracts": "[1.0.0, )",
           "LearningPlatform.BuildingBlocks.Web": "[1.0.0, )",
           "LearningPlatform.Classroom.Contracts": "[1.0.0, )",
-          "LearningPlatform.Identity": "[1.0.0, )",
           "LearningPlatform.Identity.Contracts": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "StackExchange.Redis": "[3.1.31, )",
@@ -213,16 +208,6 @@
       },
       "LearningPlatform.Communication.Contracts": {
         "type": "Project"
-      },
-      "LearningPlatform.Identity": {
-        "type": "Project",
-        "dependencies": {
-          "LearningPlatform.BuildingBlocks.Core": "[1.0.0, )",
-          "LearningPlatform.BuildingBlocks.Web": "[1.0.0, )",
-          "LearningPlatform.Identity.Contracts": "[1.0.0, )",
-          "Marten": "[9.32.0, )",
-          "Npgsql": "[9.0.4, )"
-        }
       },
       "LearningPlatform.Identity.Contracts": {
         "type": "Project"

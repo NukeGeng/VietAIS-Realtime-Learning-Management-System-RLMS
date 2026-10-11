@@ -35,6 +35,7 @@ public static class ModuleCatalog
             module.ConfigureServices(builder);
         builder.UseWolverine(options =>
         {
+            options.ApplicationAssembly = typeof(ModuleCatalog).Assembly;
             options.Policies.UseDurableLocalQueues();
             options.AutoBuildMessageStorageOnStartup = JasperFx.AutoCreate.None;
             foreach (var module in modules)

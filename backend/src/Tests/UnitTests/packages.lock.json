@@ -554,7 +554,6 @@
         "dependencies": {
           "LearningPlatform.Academics.Contracts": "[1.0.0, )",
           "LearningPlatform.BuildingBlocks.Web": "[1.0.0, )",
-          "LearningPlatform.Identity": "[1.0.0, )",
           "LearningPlatform.Identity.Contracts": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "WolverineFx": "[6.33.0, )"
@@ -572,9 +571,7 @@
           "LearningPlatform.BuildingBlocks.Web": "[1.0.0, )",
           "LearningPlatform.Classroom": "[1.0.0, )",
           "LearningPlatform.Classroom.Contracts": "[1.0.0, )",
-          "LearningPlatform.Identity": "[1.0.0, )",
           "LearningPlatform.Identity.Contracts": "[1.0.0, )",
-          "LearningPlatform.Learning": "[1.0.0, )",
           "LearningPlatform.Learning.Contracts": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "WolverineFx": "[6.33.0, )"
@@ -603,7 +600,6 @@
           "LearningPlatform.Academics.Contracts": "[1.0.0, )",
           "LearningPlatform.BuildingBlocks.Web": "[1.0.0, )",
           "LearningPlatform.Classroom.Contracts": "[1.0.0, )",
-          "LearningPlatform.Identity": "[1.0.0, )",
           "LearningPlatform.Identity.Contracts": "[1.0.0, )",
           "Marten": "[9.32.0, )",
           "StackExchange.Redis": "[3.1.31, )",
@@ -625,21 +621,6 @@
       },
       "LearningPlatform.Identity.Contracts": {
         "type": "Project"
-      },
-      "LearningPlatform.Learning": {
-        "type": "Project",
-        "dependencies": {
-          "LearningPlatform.Academics": "[1.0.0, )",
-          "LearningPlatform.Academics.Contracts": "[1.0.0, )",
-          "LearningPlatform.BuildingBlocks.Web": "[1.0.0, )",
-          "LearningPlatform.Classroom": "[1.0.0, )",
-          "LearningPlatform.Classroom.Contracts": "[1.0.0, )",
-          "LearningPlatform.Identity": "[1.0.0, )",
-          "LearningPlatform.Identity.Contracts": "[1.0.0, )",
-          "LearningPlatform.Learning.Contracts": "[1.0.0, )",
-          "Marten": "[9.32.0, )",
-          "WolverineFx": "[6.33.0, )"
-        }
       },
       "LearningPlatform.Learning.Contracts": {
         "type": "Project",
